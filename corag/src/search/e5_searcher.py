@@ -1,7 +1,7 @@
 import glob
 import torch
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 from datasets import Dataset
 
 from search.simple_encoder import SimpleEncoder
@@ -27,6 +27,7 @@ class E5Searcher:
             self, index_dir: str,
             model_name_or_path: str = 'intfloat/e5-large-v2',
             verbose: bool = False,
+            max_shards: Optional[int] = None,
     ):
         self.model_name_or_path = model_name_or_path
         self.index_dir = index_dir
@@ -34,22 +35,29 @@ class E5Searcher:
 
         n_gpus: int = torch.cuda.device_count()
         self.gpu_ids: List[int] = list(range(n_gpus))
+        self.devices: List[str] = [f'cuda:{i}' for i in self.gpu_ids] if n_gpus > 0 else ['cpu']
+        if n_gpus == 0:
+            logger.info('No GPU visible, falling back to CPU for E5Searcher')
 
         self.encoder: SimpleEncoder = SimpleEncoder(
             model_name_or_path=self.model_name_or_path,
             max_length=64,
         )
-        self.encoder.to(self.gpu_ids[-1])
+        self.encoder.to(self.devices[-1])
 
         shard_paths = _get_all_shards_path(self.index_dir)
+        if max_shards is not None:
+            shard_paths = shard_paths[:max_shards]
+            logger.info(f'Restricting to the first {len(shard_paths)} shard(s) (max_shards={max_shards})')
+
         all_embeddings: torch.Tensor = torch.cat(
             [torch.load(p, weights_only=True, map_location=lambda storage, loc: storage) for p in shard_paths], dim=0
         )
         logger.info(f'Load {all_embeddings.shape[0]} embeddings from {self.index_dir}')
 
-        split_embeddings = torch.chunk(all_embeddings, len(self.gpu_ids))
+        split_embeddings = torch.chunk(all_embeddings, len(self.devices))
         self.embeddings: List[torch.Tensor] = [
-            split_embeddings[i].to(f'cuda:{self.gpu_ids[i]}', dtype=torch.float16) for i in range(len(self.gpu_ids))
+            split_embeddings[i].to(self.devices[i], dtype=torch.float16) for i in range(len(self.devices))
         ]
 
         self.corpus: Dataset = load_corpus()

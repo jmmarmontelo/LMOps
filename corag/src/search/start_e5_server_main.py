@@ -6,6 +6,7 @@ import sys
 import random
 sys.path.insert(0, 'src')
 
+from contextlib import asynccontextmanager
 from typing import List, Dict
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -26,9 +27,11 @@ async def search(request: Request):
 
 
 async def server_loop(q):
+    max_shards_env = os.getenv('MAX_SHARDS')
     searcher: E5Searcher = E5Searcher(
         index_dir=os.getenv('INDEX_DIR', 'data/e5-large-index/'),
         model_name_or_path=os.getenv('E5_MODEL_NAME_OR_PATH', 'intfloat/e5-large-v2'),
+        max_shards=int(max_shards_env) if max_shards_env else None,
     )
     top_k = int(os.getenv('TOP_K', 5))
     logger.info(f'E5Searcher initialized, ready to serve requests, top_k={top_k}')
@@ -62,15 +65,17 @@ async def server_loop(q):
             logger.error(traceback.format_exc())
 
 
+@asynccontextmanager
+async def lifespan(app: Starlette):
+    q = asyncio.Queue()
+    app.model_queue = q
+    asyncio.create_task(server_loop(q))
+    yield
+
+
 app = Starlette(
     routes=[
         Route("/", search, methods=["POST"]),
     ],
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    q = asyncio.Queue()
-    app.model_queue = q
-    asyncio.create_task(server_loop(q))

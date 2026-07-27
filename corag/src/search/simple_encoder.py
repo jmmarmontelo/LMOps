@@ -27,7 +27,7 @@ class SimpleEncoder(nn.Module):
 
         self.encoder = AutoModel.from_pretrained(
             self.model_name_or_path,
-            torch_dtype=torch.float16,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path)
 

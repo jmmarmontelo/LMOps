@@ -53,6 +53,9 @@ class CoRagAgent:
         max_num_llm_calls: int = 4 * (max_path_length - len(past_subqueries))
         while len(past_subqueries) < max_path_length and num_llm_calls < max_num_llm_calls:
             num_llm_calls += 1
+            print(f'[CoRAG greedy] step {len(past_subqueries) + 1}/{max_path_length} '
+                  f'(llm_call {num_llm_calls}/{max_num_llm_calls})')
+
             messages: List[Dict] = get_generate_subquery_prompt(
                 query=query,
                 past_subqueries=past_subqueries,
@@ -63,19 +66,27 @@ class CoRagAgent:
 
             subquery: str = self.vllm_client.call_chat(messages=messages, temperature=subquery_temp, **kwargs)
             subquery = _normalize_subquery(subquery)
+            print(f'[CoRAG greedy]   subquery: {subquery}')
 
             if subquery in past_subqueries:
                 subquery_temp = max(subquery_temp, 0.7)
+                print(f'[CoRAG greedy]   subquery repetida, tentando novamente com temperature={subquery_temp}')
                 continue
 
             subquery_temp = temperature
             subanswer, doc_ids = self._get_subanswer_and_doc_ids(
                 subquery=subquery, max_message_length=max_message_length
             )
+            print(f'[CoRAG greedy]   subanswer: {subanswer}')
+            print(f'[CoRAG greedy]   doc_ids: {doc_ids}')
 
             past_subqueries.append(subquery)
             past_subanswers.append(subanswer)
             past_doc_ids.append(doc_ids)
+
+        print(f'[CoRAG greedy] path finalizado com {len(past_subqueries)} passo(s):')
+        for i, (q, a) in enumerate(zip(past_subqueries, past_subanswers), start=1):
+            print(f'[CoRAG greedy]   {i}. Q: {q} | A: {a}')
 
         return RagPath(
             query=query,
