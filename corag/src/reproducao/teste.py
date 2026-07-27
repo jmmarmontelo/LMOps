@@ -140,9 +140,7 @@ if __name__ == "__main__":
         base_url=os.environ["BASE_URL"],
         api_key=os.environ["API_KEY"],
         model=os.getenv("MODEL_NAME", "corag-8b"),
-        estrategia="best_of_n_self_consistency",
-        n=4,
-        temperature=0.7,
+        estrategia="greedy",
     )
     for resultado in resultados:
         print(resultado)
