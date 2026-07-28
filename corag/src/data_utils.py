@@ -1,3 +1,4 @@
+import os
 import random
 
 from typing import List, Dict, Optional
@@ -12,9 +13,14 @@ from utils import batch_truncate
 from logger_config import logger
 
 
-def load_corpus() -> Dataset:
-    corpus: Dataset = load_dataset('corag/kilt-corpus', split='train')
-    logger.info(f'Loaded {len(corpus)} passages from corag/kilt-corpus')
+def load_corpus(corpus_dir: Optional[str] = None) -> Dataset:
+    corpus_dir = corpus_dir or os.getenv('CORPUS_DIR')
+    if corpus_dir:
+        corpus: Dataset = Dataset.load_from_disk(corpus_dir)
+        logger.info(f'Loaded {len(corpus)} passages from local corpus dir: {corpus_dir}')
+    else:
+        corpus: Dataset = load_dataset('corag/kilt-corpus', split='train')
+        logger.info(f'Loaded {len(corpus)} passages from corag/kilt-corpus')
     return corpus
 
 

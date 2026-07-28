@@ -2,7 +2,7 @@ import json
 import os
 from collections import Counter
 from types import SimpleNamespace
-from typing import List
+from typing import List, Optional
 
 from datasets import load_dataset, Dataset
 from dotenv import load_dotenv
@@ -17,13 +17,33 @@ from inference.metrics import compute_metrics_dict
 from logger_config import logger
 
 
-def criar_dataset_hotpotqa(n: int = 5, split: str = "validation", aleatorio: bool = False, seed: int = 42) -> Dataset:
-    dataset = load_dataset("corag/multihopqa", "hotpotqa", split=split)
+TASK_SPLITS = {
+    "hotpotqa": "validation",
+    "2wikimultihopqa": "validation",
+    "musique": "validation",
+    "bamboogle": "test",
+}
+
+
+def criar_dataset_benchmark(
+        task: str, n: int = 30, split: Optional[str] = None,
+        aleatorio: bool = True, seed: int = 42,
+) -> Dataset:
+    mini_dir = os.getenv("MINI_DATASET_DIR")
+    if mini_dir:
+        return Dataset.load_from_disk(os.path.join(mini_dir, task))
+
+    split = split or TASK_SPLITS[task]
+    dataset = load_dataset("corag/multihopqa", task, split=split)
     if aleatorio:
         dataset = dataset.shuffle(seed=seed)
     dataset = dataset.select(range(min(n, len(dataset))))
     dataset = dataset.add_column("task_desc", ["answer multi-hop questions"] * len(dataset))
     return dataset
+
+
+def criar_dataset_hotpotqa(n: int = 5, split: str = "validation", aleatorio: bool = False, seed: int = 42) -> Dataset:
+    return criar_dataset_benchmark("hotpotqa", n=n, split=split, aleatorio=aleatorio, seed=seed)
 
 
 def calcular_metricas(resultados: list) -> dict:
