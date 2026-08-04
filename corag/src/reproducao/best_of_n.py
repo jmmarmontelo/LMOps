@@ -1,6 +1,6 @@
 import json
 import os
-from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
 
@@ -23,6 +23,16 @@ TASK_SPLITS = {
     "musique": "validation",
     "bamboogle": "test",
 }
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MINI_CORPUS_DIR = REPO_ROOT / "data" / "mini" / "corpus"
+MINI_QUESTIONS_DIR = REPO_ROOT / "data" / "mini" / "questions"
+
+SEM_RESPOSTA = "no relevant information found"
+
+
+def carregar_perguntas(task: str) -> Dataset:
+    return Dataset.load_from_disk(str(MINI_QUESTIONS_DIR / task))
 
 
 def criar_dataset_benchmark(
@@ -54,19 +64,24 @@ def calcular_metricas(resultados: list) -> dict:
     return metricas
 
 
-def selecionar_por_self_consistency(respostas: list) -> int:
-    """Índice da resposta mais frequente entre as amostras (empate resolvido pela 1ª ocorrência).
+def contar_hops_sem_resposta(path: RagPath) -> int:
+    return sum(1 for subanswer in path.past_subanswers if subanswer.strip().lower() == SEM_RESPOSTA)
 
-    Substitui o scoring por prompt_logprobs do best_of_n original (exclusivo do vLLM,
-    não suportado pelo Ollama) por votação de maioria entre as respostas finais.
+
+def selecionar_por_penalizacao(caminhos: List[RagPath]) -> int:
+    """Índice da cadeia com menos hops "No relevant information found" (empate resolvido pela
+    1ª ocorrência, ou seja, a amostra greedy/temperature=0).
+
+    Substitui o scoring por prompt_logprobs do best_of_n original (exclusivo do vLLM, não
+    suportado pelo backend usado aqui) por contagem direta de hops sem informação relevante —
+    mesma convenção de comparação de texto já usada em dinamic_chain.py (SEM_RESPOSTA).
     """
-    contagem = Counter(r.strip().lower() for r in respostas)
-    mais_comum, _ = contagem.most_common(1)[0]
-    return next(i for i, r in enumerate(respostas) if r.strip().lower() == mais_comum)
+    penalidades = [contar_hops_sem_resposta(c) for c in caminhos]
+    return penalidades.index(min(penalidades))
 
 
 def executar_rag(
-        dataset: Dataset, base_url: str, api_key: str, model: str,
+        dataset: Dataset, corpus: Dataset, base_url: str, api_key: str, model: str,
         tokenizer_name_or_path: str = "corag/CoRAG-Llama3.1-8B-MultihopQA",
         max_path_length: int = 3,
         log_path: str = "data/rag_log.jsonl",
@@ -83,7 +98,6 @@ def executar_rag(
     # (model é só o apelido usado nas chamadas da API; o tokenizer precisa do repo real no HF Hub)
     corag_agent_module.get_vllm_model_id = lambda *args, **kwargs: tokenizer_name_or_path
 
-    corpus = load_corpus()
     corag_agent = CoRagAgent(vllm_client=vllm_client, corpus=corpus)
 
     args = SimpleNamespace(num_contexts=5, max_len=3072, context_placement="backward")
@@ -99,9 +113,8 @@ def executar_rag(
                 corpus=corpus,
             )
 
-            num_amostras = n if estrategia == "best_of_n_self_consistency" else 1
+            num_amostras = n if estrategia == "best_of_n" else 1
             caminhos: List[RagPath] = []
-            candidatos: List[str] = []
             for amostra in range(num_amostras):
                 path: RagPath = corag_agent.sample_path(
                     query=exemplo["query"],
@@ -110,24 +123,22 @@ def executar_rag(
                     temperature=0. if amostra == 0 else temperature,
                     max_tokens=64,
                 )
-                resposta_candidata = corag_agent.generate_final_answer(
-                    corag_sample=path,
-                    task_desc=exemplo["task_desc"],
-                    documents=documentos,
-                    max_message_length=3072,
-                    temperature=0.,
-                    max_tokens=128,
-                )
                 caminhos.append(path)
-                candidatos.append(resposta_candidata)
-                if estrategia == "best_of_n_self_consistency":
-                    logger.info(f"  Candidato {amostra + 1}/{num_amostras}: {resposta_candidata}")
+                if estrategia == "best_of_n":
+                    penalidade = contar_hops_sem_resposta(path)
+                    logger.info(f"  Candidato {amostra + 1}/{num_amostras}: {penalidade} hop(s) sem informação relevante")
 
-            if estrategia == "best_of_n_self_consistency":
-                idx_escolhido = selecionar_por_self_consistency(candidatos)
-            else:
-                idx_escolhido = 0
-            path, resposta = caminhos[idx_escolhido], candidatos[idx_escolhido]
+            idx_escolhido = selecionar_por_penalizacao(caminhos) if estrategia == "best_of_n" else 0
+            path = caminhos[idx_escolhido]
+
+            resposta = corag_agent.generate_final_answer(
+                corag_sample=path,
+                task_desc=exemplo["task_desc"],
+                documents=documentos,
+                max_message_length=3072,
+                temperature=0.,
+                max_tokens=128,
+            )
 
             for hop, (subquery, subanswer) in enumerate(zip(path.past_subqueries, path.past_subanswers)):
                 logger.info(f"  Hop {hop + 1} subquery: {subquery}")
@@ -141,7 +152,7 @@ def executar_rag(
                 "subqueries": path.past_subqueries,
                 "subanswers": path.past_subanswers,
                 "doc_ids": path.past_doc_ids,
-                "candidatos": candidatos,
+                "penalizacoes": [contar_hops_sem_resposta(c) for c in caminhos],
                 "prediction": resposta,
             }
             resultados.append(resultado)
@@ -152,28 +163,33 @@ def executar_rag(
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--estrategia", default="best_of_n_self_consistency",
-                         choices=["greedy", "best_of_n_self_consistency"])
-    parser.add_argument("--n", type=int, default=8, help="nº de candidatos (só usado no best_of_n_self_consistency)")
-    parser.add_argument("--log-path", default="data/rag_log.jsonl")
-    args = parser.parse_args()
+    estrategia = "best_of_n"
+    n = 8  
+    log_dir = "data"
 
     load_dotenv()
 
-    dataset = criar_dataset_hotpotqa(n=30, aleatorio=True)
-    resultados = executar_rag(
-        dataset,
-        base_url=os.environ["BASE_URL"],
-        api_key=os.environ["API_KEY"],
-        model=os.getenv("MODEL_NAME", "corag-8b"),
-        estrategia=args.estrategia,
-        n=args.n,
-        log_path=args.log_path,
-    )
-    for resultado in resultados:
-        print(resultado)
+    corpus = load_corpus(corpus_dir=str(MINI_CORPUS_DIR))
 
-    calcular_metricas(resultados)
+    metricas_por_task: dict = {}
+    for task in TASK_SPLITS:
+        dataset = carregar_perguntas(task)
+        resultados = executar_rag(
+            dataset,
+            corpus,
+            base_url=os.environ["BASE_URL"],
+            api_key=os.environ["API_KEY"],
+            model=os.getenv("MODEL_NAME", "corag-8b"),
+            estrategia=estrategia,
+            n=n,
+            log_path=os.path.join(log_dir, f"rag_log_{task}.jsonl"),
+        )
+        for resultado in resultados:
+            print(resultado)
+
+        print(f"--- Métricas [{task}] ---")
+        metricas_por_task[task] = calcular_metricas(resultados)
+
+    print("=== Métricas finais (por task) ===")
+    for task, metricas in metricas_por_task.items():
+        print(f"{task}: {metricas}")

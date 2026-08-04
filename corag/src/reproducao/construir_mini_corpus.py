@@ -9,7 +9,7 @@ from datasets import Dataset
 
 from data_utils import load_corpus
 from search.e5_searcher import _get_all_shards_path
-from reproducao.reproducao import TASK_SPLITS, criar_dataset_benchmark
+from reproducao.best_of_n import TASK_SPLITS, criar_dataset_benchmark
 
 TASKS = list(TASK_SPLITS)
 
