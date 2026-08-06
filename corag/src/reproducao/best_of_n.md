@@ -7,16 +7,18 @@ local. Roda as 4 tasks de `TASK_SPLITS` (hotpotqa, 2wikimultihopqa, musique, bam
 
 ## Pré-requisitos pra rodar
 
-1. **Servidor E5** rodando na porta 8090, apontando pro mini-índice/mini-corpus
-   (`INDEX_DIR=data/mini/e5-large-index CORPUS_DIR=data/mini/corpus`).
-2. **`.env`** em `src/reproducao/.env` com `BASE_URL`, `API_KEY`, `MODEL_NAME` do backend LLM.
-3. **`data/mini/`** presente (corpus, índice E5 e perguntas) — gerado por
+1. **`.env`** em `src/reproducao/.env` com `BASE_URL`, `API_KEY`, `MODEL_NAME` do backend LLM.
+2. **`data/mini/`** presente (corpus, índice E5 e perguntas) — gerado por
    `construir_mini_corpus.py` ou copiado de outra máquina onde já foi gerado.
+3. **Servidor E5**: o próprio script sobe o servidor sozinho (`iniciar_servidor_e5`, mesma
+   função de `dynamic_chain.py`) se a porta 8090 ainda não estiver ocupada — não precisa subir
+   à parte.
 
 ## Visão geral do fluxo
 
 ```
 __main__
+ ├─ iniciar_servidor_e5(...)        → sobe o servidor E5 (mini-índice) se ainda não estiver no ar
  └─ para cada task em TASK_SPLITS (hotpotqa, 2wikimultihopqa, musique, bamboogle):
      ├─ carregar_perguntas(task)      → carrega as 30 perguntas do mini-dataset
      ├─ executar_rag(dataset, corpus, ...)

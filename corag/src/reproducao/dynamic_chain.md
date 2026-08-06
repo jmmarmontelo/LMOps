@@ -123,6 +123,6 @@ final.
 |---|---|---|
 | Estratégia de seleção | escolhe **uma** cadeia entre N (`selecionar_por_penalizacao`) | **mescla** hops úteis de todas as N cadeias |
 | Modo "greedy" (1 amostra) | sim (`estrategia="greedy"`) | não — sempre amostra `n` cadeias |
-| Servidor E5 | precisa estar rodando à parte | sobe sozinho (`iniciar_servidor_e5`) |
+| Servidor E5 | sobe sozinho (`iniciar_servidor_e5`) | sobe sozinho (`iniciar_servidor_e5`, mesma função) |
 | Documentos de contexto (`context_doc_ids`) na resposta final | sim (`format_documents_for_final_answer`) | sim (`format_documents_for_final_answer`, mesmos parâmetros) |
-| Geração da resposta final | `CoRagAgent.generate_final_answer` | `vllm_client.call_chat` direto |
+| Geração da resposta final | `CoRagAgent.generate_final_answer` | `CoRagAgent.generate_final_answer` (via `gerar_resposta_final`) |

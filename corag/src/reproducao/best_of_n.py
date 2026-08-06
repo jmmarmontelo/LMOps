@@ -1,5 +1,8 @@
 import json
 import os
+import socket
+import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
@@ -27,8 +30,50 @@ TASK_SPLITS = {
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MINI_CORPUS_DIR = REPO_ROOT / "data" / "mini" / "corpus"
 MINI_QUESTIONS_DIR = REPO_ROOT / "data" / "mini" / "questions"
+MINI_E5_INDEX_DIR = REPO_ROOT / "data" / "mini" / "e5-large-index"
+E5_SERVER_LOG = REPO_ROOT / "e5_server_mini.log"
 
 SEM_RESPOSTA = "no relevant information found"
+
+
+def _porta_aberta(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        return sock.connect_ex((host, port)) == 0
+
+
+def iniciar_servidor_e5(
+        index_dir: Path, corpus_dir: Path, host: str = "localhost", port: int = 8090, timeout: int = 600,
+) -> Optional[subprocess.Popen]:
+    if _porta_aberta(host, port):
+        print(f"Servidor E5 ja rodando em {host}:{port}.")
+        return None
+
+    print(f"Iniciando servidor E5 (mini-corpus) em {host}:{port}, log em {E5_SERVER_LOG}...")
+    env = os.environ.copy()
+    env["INDEX_DIR"] = str(index_dir)
+    env["CORPUS_DIR"] = str(corpus_dir)
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+
+    log_file = open(E5_SERVER_LOG, "w")
+    processo = subprocess.Popen(
+        ["uvicorn", "src.search.start_e5_server_main:app", "--port", str(port)],
+        cwd=str(REPO_ROOT),
+        env=env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+    )
+
+    elapsed = 0
+    while not _porta_aberta(host, port):
+        if processo.poll() is not None:
+            raise RuntimeError(f"Servidor E5 encerrou antes de subir; veja {E5_SERVER_LOG}")
+        time.sleep(2)
+        elapsed += 2
+        if elapsed >= timeout:
+            raise TimeoutError(f"Servidor E5 nao respondeu em {timeout}s; veja {E5_SERVER_LOG}")
+
+    print("Servidor E5 pronto (o modelo de encoding ainda pode estar carregando em segundo plano).")
+    return processo
 
 
 def carregar_perguntas(task: str) -> Dataset:
@@ -169,6 +214,8 @@ if __name__ == "__main__":
     log_dir = "data"
 
     load_dotenv()
+
+    iniciar_servidor_e5(MINI_E5_INDEX_DIR, MINI_CORPUS_DIR)
 
     corpus = load_corpus(corpus_dir=str(MINI_CORPUS_DIR))
 
