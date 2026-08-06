@@ -10,6 +10,7 @@ import subprocess
 import time
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional
 
 from datasets import Dataset
@@ -20,7 +21,7 @@ import agent.corag_agent as corag_agent_module
 
 from agent import CoRagAgent
 from agent.agent_utils import RagPath
-from prompts import get_generate_final_answer_prompt
+from data_utils import format_documents_for_final_answer
 from reproducao.best_of_n import TASK_SPLITS, criar_dataset_benchmark, calcular_metricas
 
 from vllm_client import VllmClient
@@ -37,13 +38,18 @@ E5_SERVER_LOG = REPO_ROOT / "e5_server_mini.log"
 # quando os documentos recuperados nao respondem a subpergunta.
 SEM_RESPOSTA = "no relevant information found"
 
+# mesmos parametros usados em best_of_n.py, para manter a comparacao entre as duas
+# estrategias justa: ambas recebem os mesmos documentos (context_doc_ids do dataset) na
+# geracao da resposta final, igual ao pipeline oficial (run_inference.py).
+DOC_ARGS = SimpleNamespace(num_contexts=5, max_len=3072, context_placement="backward")
+
 
 def carregar_mini_corpus() -> Dataset:
     return Dataset.load_from_disk(str(MINI_CORPUS_DIR))
 
 
 def carregar_mini_perguntas(task: str) -> Dataset:
-    # criar_dataset_benchmark (reproducao.py) carrega direto do disco quando
+    # criar_dataset_benchmark (best_of_n.py) carrega direto do disco quando
     # MINI_DATASET_DIR esta definido, em vez de baixar/amostrar do HF.
     os.environ["MINI_DATASET_DIR"] = str(MINI_QUESTIONS_DIR)
     return criar_dataset_benchmark(task, split=TASK_SPLITS[task])
@@ -149,23 +155,21 @@ def montar_chain_final(paths: List[RagPath]) -> RagPath:
     return selecionar_subperguntas_respondidas(chain_bruta)
 
 
-def montar_prompt_final(
-        path: RagPath, task_desc: str, documents: Optional[List[str]] = None
-) -> List[Dict]:
-    return get_generate_final_answer_prompt(
-        query=path.query,
-        past_subqueries=path.past_subqueries,
-        past_subanswers=path.past_subanswers,
-        task_desc=task_desc,
-        documents=documents,
-    )
-
-
 def gerar_resposta_final(
         corag_agent: CoRagAgent, path: RagPath, task_desc: str, documents: Optional[List[str]] = None,
 ) -> str:
-    messages: List[Dict] = montar_prompt_final(path, task_desc, documents=documents)
-    resposta: str = corag_agent.vllm_client.call_chat(messages=messages, temperature=0., max_tokens=128)
+    # Passa por CoRagAgent.generate_final_answer (em vez de vllm_client.call_chat direto) pra
+    # herdar o truncamento de mensagem longa (_truncate_long_messages) — mesmo caminho usado
+    # em best_of_n.py, necessario aqui porque a cadeia mesclada pode ter ate n x max_path_length
+    # hops brutos antes do filtro, maior que a cadeia unica escolhida no best_of_n.
+    resposta: str = corag_agent.generate_final_answer(
+        corag_sample=path,
+        task_desc=task_desc,
+        documents=documents,
+        max_message_length=3072,
+        temperature=0.,
+        max_tokens=128,
+    )
 
     print(f"Resposta final: {resposta}")
     return resposta
@@ -184,7 +188,9 @@ def executar_teste(corag_agent: CoRagAgent, query: str, task_desc: str) -> RagPa
     return path
 
 
-def executar_dynamic_chain(corag_agent: CoRagAgent, query: str, task_desc: str, n: int = 4) -> List[RagPath]:
+def executar_dynamic_chain(
+        corag_agent: CoRagAgent, query: str, task_desc: str, n: int = 4, max_path_length: int = 3,
+) -> List[RagPath]:
     # CoRagAgent.best_of_n pontua os candidatos pelo logprob de "No relevant information
     # found" (extra_body prompt_logprobs), recurso exclusivo de um servidor vLLM real;
     # o endpoint remoto usado aqui nao retorna esse campo. Por isso so amostramos as N
@@ -196,7 +202,7 @@ def executar_dynamic_chain(corag_agent: CoRagAgent, query: str, task_desc: str, 
         path: RagPath = corag_agent.sample_path(
             query=query,
             task_desc=task_desc,
-            max_path_length=3,
+            max_path_length=max_path_length,
             temperature=0. if idx == 0 else 0.7,
             max_tokens=64,
         )
@@ -209,17 +215,26 @@ def executar_dynamic_chain(corag_agent: CoRagAgent, query: str, task_desc: str, 
     return paths
 
 
-def executar_pipeline_pergunta(corag_agent: CoRagAgent, exemplo: Dict, n: int = 4) -> Dict:
+def executar_pipeline_pergunta(
+        corag_agent: CoRagAgent, exemplo: Dict, n: int = 4, max_path_length: int = 3,
+) -> Dict:
     query = exemplo["query"]
     task_desc = exemplo["task_desc"]
 
-    paths = executar_dynamic_chain(corag_agent, query, task_desc, n=n)
+    documentos = format_documents_for_final_answer(
+        args=DOC_ARGS,
+        context_doc_ids=exemplo["context_doc_ids"],
+        tokenizer=corag_agent.tokenizer,
+        corpus=corag_agent.corpus,
+    )
+
+    paths = executar_dynamic_chain(corag_agent, query, task_desc, n=n, max_path_length=max_path_length)
     chain_final = montar_chain_final(paths)
 
     print("--- Chain final (subperguntas respondidas) ---")
     _imprimir_path(chain_final)
 
-    resposta = gerar_resposta_final(corag_agent, chain_final, task_desc)
+    resposta = gerar_resposta_final(corag_agent, chain_final, task_desc, documents=documentos)
 
     return {
         "query": query,
@@ -232,7 +247,8 @@ def executar_pipeline_pergunta(corag_agent: CoRagAgent, exemplo: Dict, n: int = 
 
 
 if __name__ == "__main__":
-    n = 8 
+    n = 2
+    max_path_length = 6
 
     load_dotenv()
 
@@ -253,7 +269,7 @@ if __name__ == "__main__":
         resultados = []
         for idx, exemplo in enumerate(perguntas):
             print(f"=== [{task}] pergunta {idx + 1}/{len(perguntas)}: {exemplo['query']} ===")
-            resultados.append(executar_pipeline_pergunta(corag_agent, exemplo, n=n))
+            resultados.append(executar_pipeline_pergunta(corag_agent, exemplo, n=n, max_path_length=max_path_length))
 
         print(f"--- Metricas [{task}] ---")
         metricas_por_task[task] = calcular_metricas(resultados)

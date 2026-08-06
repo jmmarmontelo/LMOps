@@ -74,7 +74,7 @@ def selecionar_por_penalizacao(caminhos: List[RagPath]) -> int:
 
     Substitui o scoring por prompt_logprobs do best_of_n original (exclusivo do vLLM, não
     suportado pelo backend usado aqui) por contagem direta de hops sem informação relevante —
-    mesma convenção de comparação de texto já usada em dinamic_chain.py (SEM_RESPOSTA).
+    mesma convenção de comparação de texto já usada em dynamic_chain.py (SEM_RESPOSTA).
     """
     penalidades = [contar_hops_sem_resposta(c) for c in caminhos]
     return penalidades.index(min(penalidades))
@@ -164,7 +164,8 @@ def executar_rag(
 
 if __name__ == "__main__":
     estrategia = "best_of_n"
-    n = 8  
+    n = 2
+    max_path_length = 6
     log_dir = "data"
 
     load_dotenv()
@@ -182,6 +183,7 @@ if __name__ == "__main__":
             model=os.getenv("MODEL_NAME", "corag-8b"),
             estrategia=estrategia,
             n=n,
+            max_path_length=max_path_length,
             log_path=os.path.join(log_dir, f"rag_log_{task}.jsonl"),
         )
         for resultado in resultados:
