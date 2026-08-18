@@ -4,11 +4,13 @@
 # E antes do pipeline escolher uma chain para responder a pergunta original
 # Pegar todas as chains para fazer uma chain dinamica
 
+import json
 import os
 import socket
 import subprocess
 import time
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional
@@ -22,16 +24,20 @@ import agent.corag_agent as corag_agent_module
 from agent import CoRagAgent
 from agent.agent_utils import RagPath
 from data_utils import format_documents_for_final_answer
-from reproducao.best_of_n import TASK_SPLITS, criar_dataset_benchmark, calcular_metricas
+from reproducao.best_of_n import (
+    TASK_SPLITS, criar_dataset_benchmark, calcular_metricas, fundir_doc_ids_por_rrf,
+    DOC_SOURCE, NUM_CONTEXTS, RRF_K, NUM_THREADS,
+)
 
 from vllm_client import VllmClient
 
 tokenizer_name_or_path = "corag/CoRAG-Llama3.1-8B-MultihopQA"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MINI_CORPUS_DIR = REPO_ROOT / "data" / "mini" / "corpus"
-MINI_QUESTIONS_DIR = REPO_ROOT / "data" / "mini" / "questions"
-MINI_E5_INDEX_DIR = REPO_ROOT / "data" / "mini" / "e5-large-index"
+MINI_BASE_DIR = Path(os.getenv("MINI_BASE_DIR", str(REPO_ROOT / "data" / "mini")))
+MINI_CORPUS_DIR = MINI_BASE_DIR / "corpus"
+MINI_QUESTIONS_DIR = MINI_BASE_DIR / "questions"
+MINI_E5_INDEX_DIR = MINI_BASE_DIR / "e5-large-index"
 E5_SERVER_LOG = REPO_ROOT / "e5_server_mini.log"
 
 # resposta padrao instruida em get_generate_intermediate_answer_prompt (src/prompts.py)
@@ -39,9 +45,10 @@ E5_SERVER_LOG = REPO_ROOT / "e5_server_mini.log"
 SEM_RESPOSTA = "no relevant information found"
 
 # mesmos parametros usados em best_of_n.py, para manter a comparacao entre as duas
-# estrategias justa: ambas recebem os mesmos documentos (context_doc_ids do dataset) na
-# geracao da resposta final, igual ao pipeline oficial (run_inference.py).
-DOC_ARGS = SimpleNamespace(num_contexts=5, max_len=3072, context_placement="backward")
+# estrategias justa: por padrao (DOC_SOURCE=dataset) ambas recebem os mesmos documentos
+# (context_doc_ids do dataset) na geracao da resposta final, igual ao pipeline oficial
+# (run_inference.py). DOC_SOURCE=chain troca a fonte pelos doc_ids que a propria chain recuperou.
+DOC_ARGS = SimpleNamespace(num_contexts=NUM_CONTEXTS, max_len=3072, context_placement="backward")
 
 
 def carregar_mini_corpus() -> Dataset:
@@ -221,34 +228,74 @@ def executar_pipeline_pergunta(
     query = exemplo["query"]
     task_desc = exemplo["task_desc"]
 
-    documentos = format_documents_for_final_answer(
-        args=DOC_ARGS,
-        context_doc_ids=exemplo["context_doc_ids"],
-        tokenizer=corag_agent.tokenizer,
-        corpus=corag_agent.corpus,
-    )
-
     paths = executar_dynamic_chain(corag_agent, query, task_desc, n=n, max_path_length=max_path_length)
     chain_final = montar_chain_final(paths)
 
     print("--- Chain final (subperguntas respondidas) ---")
     _imprimir_path(chain_final)
 
+    doc_ids_fonte = fundir_doc_ids_por_rrf(chain_final.past_doc_ids) if DOC_SOURCE == "chain" \
+        else exemplo["context_doc_ids"]
+    documentos = format_documents_for_final_answer(
+        args=DOC_ARGS,
+        context_doc_ids=doc_ids_fonte,
+        tokenizer=corag_agent.tokenizer,
+        corpus=corag_agent.corpus,
+        # mesmo lock usado internamente por CoRagAgent._truncate_long_messages — evita que
+        # múltiplas threads chamem batch_truncate no mesmo tokenizer ao mesmo tempo.
+        lock=corag_agent.lock,
+    )
+
     resposta = gerar_resposta_final(corag_agent, chain_final, task_desc, documents=documentos)
 
     return {
         "query": query,
         "answers": exemplo["answers"],
+        "estrategia": "dynamic_chain",
+        "n": n,
+        "max_path_length": max_path_length,
         "subqueries": chain_final.past_subqueries,
         "subanswers": chain_final.past_subanswers,
         "doc_ids": chain_final.past_doc_ids,
+        "doc_source": DOC_SOURCE,
         "prediction": resposta,
     }
 
 
+def executar_dynamic_chain_dataset(
+        dataset: Dataset, corag_agent: CoRagAgent,
+        n: int = 4, max_path_length: int = 3,
+        log_path: Optional[str] = None,
+        num_threads: int = NUM_THREADS,
+        rotulo: str = "",
+) -> List[Dict]:
+    total = len(dataset)
+
+    def _processar(par):
+        idx, exemplo = par
+        print(f"=== {rotulo}pergunta {idx + 1}/{total}: {exemplo['query']} ===")
+        return executar_pipeline_pergunta(corag_agent, exemplo, n=n, max_path_length=max_path_length)
+
+    # Mesmo padrão de best_of_n.py: ThreadPoolExecutor.map preserva a ordem de entrada, então
+    # "resultados" fica alinhado com "dataset" mesmo rodando em paralelo.
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        resultados: List[Dict] = list(executor.map(_processar, enumerate(dataset)))
+
+    if log_path:
+        # Escreve só depois de coletar tudo — evita múltiplas threads escrevendo no mesmo
+        # arquivo ao mesmo tempo (mesmo cuidado de executar_rag em best_of_n.py).
+        with open(log_path, "w") as log_file:
+            for resultado in resultados:
+                log_file.write(json.dumps(resultado, ensure_ascii=False) + "\n")
+
+    return resultados
+
+
 if __name__ == "__main__":
-    n = 2
+    n = 4
     max_path_length = 6
+
+    print(f"doc_source={DOC_SOURCE} num_contexts={NUM_CONTEXTS} rrf_k={RRF_K} num_threads={NUM_THREADS}")
 
     load_dotenv()
 
@@ -262,14 +309,17 @@ if __name__ == "__main__":
         corpus=corpus,
     )
 
+    tasks = os.getenv("TASKS", ",".join(TASK_SPLITS)).split(",")
+
     metricas_por_task: Dict[str, Dict] = {}
-    for task in TASK_SPLITS:
+    for task in tasks:
         perguntas = carregar_mini_perguntas(task)
 
-        resultados = []
-        for idx, exemplo in enumerate(perguntas):
-            print(f"=== [{task}] pergunta {idx + 1}/{len(perguntas)}: {exemplo['query']} ===")
-            resultados.append(executar_pipeline_pergunta(corag_agent, exemplo, n=n, max_path_length=max_path_length))
+        resultados = executar_dynamic_chain_dataset(
+            perguntas, corag_agent, n=n, max_path_length=max_path_length,
+            log_path=os.path.join("data", f"rag_log_dynamic_chain_{task}.jsonl"),
+            rotulo=f"[{task}] ",
+        )
 
         print(f"--- Metricas [{task}] ---")
         metricas_por_task[task] = calcular_metricas(resultados)

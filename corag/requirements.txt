@@ -13,3 +13,4 @@ uvicorn
 requests
 httpx==0.27.2
 python-dotenv
+psutil

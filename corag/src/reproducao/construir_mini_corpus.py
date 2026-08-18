@@ -1,3 +1,4 @@
+import argparse
 import bisect
 import json
 import os
@@ -11,24 +12,32 @@ from data_utils import load_corpus
 from search.e5_searcher import _get_all_shards_path
 from reproducao.best_of_n import TASK_SPLITS, criar_dataset_benchmark
 
-TASKS = list(TASK_SPLITS)
-
 N_PERGUNTAS = 30
 N_DISTRATORES_POR_BENCHMARK = 1000
 SEED = 42
 
 INDEX_DIR_ORIGINAL = "data/e5-large-index"
-CORPUS_DIR_SAIDA = "data/mini/corpus"
-INDEX_DIR_SAIDA = "data/mini/e5-large-index"
-QUESTIONS_DIR_SAIDA = "data/mini/questions"
-ID_MAP_PATH = "data/mini/id_map.json"
+OUTPUT_DIR_PADRAO = "data/mini"
 
 
-def amostrar_datasets(n: int = N_PERGUNTAS, seed: int = SEED) -> Dict[str, Dataset]:
+def amostrar_datasets(tasks: List[str], n: int = N_PERGUNTAS, seed: int = SEED) -> Dict[str, Dataset]:
     return {
         task: criar_dataset_benchmark(task, n=n, split=TASK_SPLITS[task], aleatorio=True, seed=seed)
-        for task in TASKS
+        for task in tasks
     }
+
+
+def fatiar_dataset_sequencial(task: str, start_idx: int, end_idx: int, split: str = None) -> Dataset:
+    """Fatia sequencial (nao aleatoria) do split real de `task`, para processar o dataset
+    inteiro em partes (ex.: chunks de 1000 perguntas) em vez de uma amostra aleatoria."""
+    from datasets import load_dataset
+
+    split = split or TASK_SPLITS[task]
+    dataset = load_dataset("corag/multihopqa", task, split=split)
+    end_idx = min(end_idx, len(dataset))
+    dataset = dataset.select(range(start_idx, end_idx))
+    dataset = dataset.add_column("task_desc", ["answer multi-hop questions"] * len(dataset))
+    return dataset
 
 
 def coletar_ids_contexto(mini_datasets: Dict[str, Dataset]) -> Set[int]:
@@ -40,13 +49,13 @@ def coletar_ids_contexto(mini_datasets: Dict[str, Dataset]) -> Set[int]:
 
 
 def amostrar_distratores(
-        ids_existentes: Set[int], corpus_len: int,
+        ids_existentes: Set[int], corpus_len: int, tasks: List[str],
         n_por_benchmark: int = N_DISTRATORES_POR_BENCHMARK, seed: int = SEED,
 ) -> Set[int]:
     rng = random.Random(seed)
     selecionados = set(ids_existentes)
     distratores: Set[int] = set()
-    for _ in TASKS:
+    for _ in tasks:
         adicionados = 0
         while adicionados < n_por_benchmark:
             candidato = rng.randrange(corpus_len)
@@ -96,31 +105,49 @@ def extrair_embeddings(mapa_ids: Dict[int, int], tabela_shards: List[Tuple[str, 
     return saida
 
 
-def construir_mini_corpus_e_indice(mapa_ids: Dict[int, int]) -> None:
+def construir_mini_corpus_e_indice(mapa_ids: Dict[int, int], corpus_dir_saida: str, index_dir_saida: str) -> None:
     corpus = load_corpus()
     ids_originais_ordenados = sorted(mapa_ids, key=mapa_ids.get)
 
     mini_corpus = corpus.select(ids_originais_ordenados)
     mini_corpus = mini_corpus.add_column("orig_doc_id", ids_originais_ordenados)
-    mini_corpus.save_to_disk(CORPUS_DIR_SAIDA)
+    mini_corpus.save_to_disk(corpus_dir_saida)
 
     tabela = construir_tabela_shards(INDEX_DIR_ORIGINAL)
     mini_embeddings = extrair_embeddings(mapa_ids, tabela)
-    os.makedirs(INDEX_DIR_SAIDA, exist_ok=True)
-    torch.save(mini_embeddings, os.path.join(INDEX_DIR_SAIDA, "e5-large-shard-0.pt"))
+    os.makedirs(index_dir_saida, exist_ok=True)
+    torch.save(mini_embeddings, os.path.join(index_dir_saida, "e5-large-shard-0.pt"))
 
 
-def remapear_e_salvar_datasets(mini_datasets: Dict[str, Dataset], mapa_ids: Dict[int, int]) -> None:
+def remapear_e_salvar_datasets(
+        mini_datasets: Dict[str, Dataset], mapa_ids: Dict[int, int], questions_dir_saida: str,
+) -> None:
     for task, dataset in mini_datasets.items():
         dataset_remapeado = dataset.map(lambda exemplo: {
             "context_doc_ids": [str(mapa_ids[int(doc_id)]) for doc_id in exemplo["context_doc_ids"]]
         })
-        dataset_remapeado.save_to_disk(os.path.join(QUESTIONS_DIR_SAIDA, task))
+        dataset_remapeado.save_to_disk(os.path.join(questions_dir_saida, task))
 
 
-if __name__ == "__main__":
-    print("Amostrando 30 perguntas por benchmark...")
-    mini_datasets = amostrar_datasets()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tasks", nargs="+", default=list(TASK_SPLITS), choices=list(TASK_SPLITS))
+    parser.add_argument("--n-perguntas", type=int, default=N_PERGUNTAS)
+    parser.add_argument("--n-distratores", type=int, default=N_DISTRATORES_POR_BENCHMARK)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--output-dir", default=OUTPUT_DIR_PADRAO)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    corpus_dir_saida = os.path.join(args.output_dir, "corpus")
+    index_dir_saida = os.path.join(args.output_dir, "e5-large-index")
+    questions_dir_saida = os.path.join(args.output_dir, "questions")
+    id_map_path = os.path.join(args.output_dir, "id_map.json")
+
+    print(f"Amostrando {args.n_perguntas} perguntas por benchmark ({', '.join(args.tasks)})...")
+    mini_datasets = amostrar_datasets(args.tasks, n=args.n_perguntas, seed=args.seed)
 
     print("Coletando context_doc_ids...")
     ids_contexto = coletar_ids_contexto(mini_datasets)
@@ -133,20 +160,27 @@ if __name__ == "__main__":
     )
 
     print("Sorteando distratores...")
-    distratores = amostrar_distratores(ids_contexto, corpus_len=corpus_len)
+    distratores = amostrar_distratores(
+        ids_contexto, corpus_len=corpus_len, tasks=args.tasks,
+        n_por_benchmark=args.n_distratores, seed=args.seed,
+    )
     print(f"  {len(distratores)} ids distratores")
 
     mapa_ids = construir_mapa_ids(ids_contexto | distratores)
     print(f"Mini-corpus final: {len(mapa_ids)} documentos")
 
     print("Construindo mini-corpus e mini-indice...")
-    construir_mini_corpus_e_indice(mapa_ids)
+    construir_mini_corpus_e_indice(mapa_ids, corpus_dir_saida, index_dir_saida)
 
     print("Remapeando context_doc_ids e salvando mini-datasets...")
-    remapear_e_salvar_datasets(mini_datasets, mapa_ids)
+    remapear_e_salvar_datasets(mini_datasets, mapa_ids, questions_dir_saida)
 
-    os.makedirs(os.path.dirname(ID_MAP_PATH), exist_ok=True)
-    with open(ID_MAP_PATH, "w") as f:
+    os.makedirs(os.path.dirname(id_map_path), exist_ok=True)
+    with open(id_map_path, "w") as f:
         json.dump({str(k): v for k, v in mapa_ids.items()}, f)
 
-    print("Concluido. Artefatos em data/mini/")
+    print(f"Concluido. Artefatos em {args.output_dir}/")
+
+
+if __name__ == "__main__":
+    main()
