@@ -54,15 +54,19 @@ qualidade do raciocínio intermediário.
 
 - CPU: Intel i5-4440 (4 núcleos, geração 2013)
 - GPU: GTX 1650, 4GB VRAM
-- RAM: 12GB total, ~8GB livre
+- RAM: 12GB físicos no host — **mas a execução é via WSL2 (Windows)**,
+  então a RAM efetivamente disponível pro Linux/Claude Code é menor, ~6GB
+  (ver seção "Rodando via WSL2" abaixo antes de assumir que só tem 6GB —
+  provavelmente dá pra aumentar isso).
 - Disco: SSD Kingston A400
 
 **Análise de viabilidade:**
 - GPU: só carrega o encoder E5 (`intfloat/e5-large-v2`, ~335M parâmetros,
   já é o que `SimpleEncoder`/`E5Searcher` fazem por padrão) — sobra margem
   nos 4GB.
-- RAM: o índice FAISS comprimido (IVF+PQ) mira ficar em ~2-3GB — cabe
-  folgado nos ~8GB livres.
+- RAM: o índice FAISS comprimido (IVF+PQ) mira ficar em ~2-3GB. Com os
+  ~6GB do WSL2 (default), fica mais apertado que o inicialmente estimado —
+  ver sizing conservador na seção WSL2.
 - SSD: ler os ~70GB de shards de embeddings (só na construção do índice,
   uma vez) deve levar poucos minutos, não é gargalo.
 - CPU: é a etapa mais lenta — treinar o índice (k-means do IVF + codebook
@@ -72,6 +76,36 @@ qualidade do raciocínio intermediário.
   de execução (por sub-pergunta) deve ser rápida mesmo nesse CPU, já que
   IVF+PQ evita comparar contra os 36M vetores a cada query — bem diferente
   da busca brute-force atual.
+
+### Rodando via WSL2 (Windows) — ler antes de começar
+
+A máquina alvo roda Windows; a execução (Claude Code, Python, FAISS) é
+dentro do WSL2. Isso muda três coisas:
+
+1. **RAM do WSL2 é limitada por padrão a ~50% da RAM do host.** Com 12GB
+   físicos, isso dá os ~6GB observados — não é um limite de hardware, é uma
+   configuração. Pra aumentar: no lado **Windows** (não dentro do WSL),
+   criar/editar `%UserProfile%\.wslconfig`:
+   ```ini
+   [wsl2]
+   memory=10GB
+   ```
+   e depois, no PowerShell: `wsl --shutdown` (fecha o WSL) e reabrir o
+   terminal WSL de novo. Isso libera bem mais margem (10GB em vez de 6GB)
+   sem precisar de mais hardware.
+2. **GPU (GTX 1650) precisa de passthrough CUDA-on-WSL**: instalar o
+   driver NVIDIA com suporte a WSL **no Windows** (não instalar nenhum
+   driver de GPU separado dentro do WSL — isso quebra o passthrough) e o
+   toolkit CUDA dentro do WSL. Confirmar que funcionou rodando `nvidia-smi`
+   dentro do WSL — se reconhecer a GTX 1650, está OK.
+3. **Sizing mais conservador do índice FAISS**, caso não dê pra ajustar o
+   `.wslconfig` (ou mesmo depois de ajustar, como margem de segurança):
+   - Amostra de treino do IVF/PQ: usar ~200-300k vetores em vez de ~500k-1M
+     (500k vetores em float32 já usa ~2GB só pra essa etapa transitória).
+   - `m=32` em vez de `m=64` no `IndexIVFPQ` (32 bytes/vetor em vez de 64
+     → 36M vetores ≈ 1.15GB em vez de ~2.3GB) — troca uma fração de recall
+     por bem mais margem de memória durante a construção do índice, que é
+     o pico de memória mais apertado de todo o processo.
 
 ## O que implementar
 
@@ -88,9 +122,7 @@ Passos:
    map_location="cpu")` — mesmo padrão já usado em
    `src/reproducao/construir_mini_corpus.py:65` (`extrair_embeddings`).
    Nunca materializar os 70GB de uma vez.
-2. Amostrar um subconjunto de treino (começar com ~500k vetores; 1M vetores
-   em float32 usa ~4GB, então subir esse número só se sobrar margem de RAM
-   observada na prática) e treinar:
+2. Amostrar um subconjunto de treino e treinar:
    ```python
    import faiss
    dim = 1024  # dimensao do e5-large-v2
@@ -98,7 +130,12 @@ Passos:
    index = faiss.IndexIVFPQ(quantizer, dim, 4096, 64, 8)  # nlist=4096, m=64, nbits=8
    index.train(amostra_treino)  # amostra_treino: np.ndarray float32, shape (N, 1024)
    ```
-   `m=64, nbits=8` → 64 bytes/vetor comprimido → 36M vetores ≈ 2.3GB.
+   `m=64, nbits=8` → 64 bytes/vetor comprimido → 36M vetores ≈ 2.3GB. **Se
+   estiver rodando com a RAM limitada do WSL2 (ver seção "Rodando via
+   WSL2" acima)**, usar parâmetros mais conservadores: amostra de treino
+   de ~200-300k vetores (em vez de ~500k-1M — 500k em float32 já usa ~2GB
+   só nessa etapa transitória) e `m=32` em vez de `m=64` (32 bytes/vetor →
+   36M vetores ≈ 1.15GB, mais folga ao custo de um pouco de recall).
 3. Adicionar os vetores **shard por shard**, na mesma ordem de
    `_get_all_shards_path` (convertendo cada shard de float16 pra float32 só
    no momento do `index.add`, um shard por vez):

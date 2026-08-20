@@ -1,5 +1,7 @@
 import glob
+import os
 import torch
+import faiss
 
 from typing import List, Dict, Optional, Tuple
 from datasets import Dataset
@@ -19,6 +21,14 @@ def _get_all_shards_path(index_dir: str) -> List[str]:
     path_list = sorted(path_list, key=lambda path: _parse_shard_idx(path))
     logger.info('Embeddings path list: {}'.format(path_list))
     return path_list
+
+
+def _get_faiss_index_path(index_dir: str) -> Optional[str]:
+    matches = glob.glob('{}/*.faiss'.format(index_dir))
+    if not matches:
+        return None
+    assert len(matches) == 1, f'esperado 1 arquivo .faiss em {index_dir}, achou {matches}'
+    return matches[0]
 
 
 class E5Searcher:
@@ -45,26 +55,37 @@ class E5Searcher:
         )
         self.encoder.to(self.devices[-1])
 
-        shard_paths = _get_all_shards_path(self.index_dir)
-        if max_shards is not None:
-            shard_paths = shard_paths[:max_shards]
-            logger.info(f'Restricting to the first {len(shard_paths)} shard(s) (max_shards={max_shards})')
+        faiss_index_path = _get_faiss_index_path(self.index_dir)
+        self.usa_faiss = faiss_index_path is not None
 
-        all_embeddings: torch.Tensor = torch.cat(
-            [torch.load(p, weights_only=True, map_location=lambda storage, loc: storage) for p in shard_paths], dim=0
-        )
-        logger.info(f'Load {all_embeddings.shape[0]} embeddings from {self.index_dir}')
+        if self.usa_faiss:
+            logger.info(f'Carregando indice FAISS de {faiss_index_path}')
+            self.faiss_index = faiss.read_index(faiss_index_path)
+            self.faiss_index.nprobe = int(os.getenv('FAISS_NPROBE', '32'))
+            logger.info(f'Indice FAISS carregado: {self.faiss_index.ntotal} vetores, nprobe={self.faiss_index.nprobe}')
+        else:
+            shard_paths = _get_all_shards_path(self.index_dir)
+            if max_shards is not None:
+                shard_paths = shard_paths[:max_shards]
+                logger.info(f'Restricting to the first {len(shard_paths)} shard(s) (max_shards={max_shards})')
 
-        split_embeddings = torch.chunk(all_embeddings, len(self.devices))
-        self.embeddings: List[torch.Tensor] = [
-            split_embeddings[i].to(self.devices[i], dtype=torch.float16) for i in range(len(self.devices))
-        ]
+            all_embeddings: torch.Tensor = torch.cat(
+                [torch.load(p, weights_only=True, map_location=lambda storage, loc: storage) for p in shard_paths], dim=0
+            )
+            logger.info(f'Load {all_embeddings.shape[0]} embeddings from {self.index_dir}')
+
+            split_embeddings = torch.chunk(all_embeddings, len(self.devices))
+            self.embeddings: List[torch.Tensor] = [
+                split_embeddings[i].to(self.devices[i], dtype=torch.float16) for i in range(len(self.devices))
+            ]
 
         self.corpus: Dataset = load_corpus()
 
     @torch.no_grad()
     def batch_search(self, queries: List[str], k: int, **kwargs) -> List[List[Dict]]:
-        query_embed: torch.Tensor = self.encoder.encode_queries(queries).to(dtype=self.embeddings[0].dtype)
+        query_embed: torch.Tensor = self.encoder.encode_queries(queries)
+        if not self.usa_faiss:
+            query_embed = query_embed.to(dtype=self.embeddings[0].dtype)
 
         batch_sorted_score, batch_sorted_indices = self._compute_topk(query_embed, k=k)
 
@@ -84,6 +105,10 @@ class E5Searcher:
         return results_list
 
     def _compute_topk(self, query_embed: torch.Tensor, k: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.usa_faiss:
+            scores, ids = self.faiss_index.search(query_embed.float().numpy(), k)
+            return torch.from_numpy(scores), torch.from_numpy(ids)
+
         batch_score_list: List[torch.Tensor] = []
         batch_sorted_indices_list: List[torch.Tensor] = []
 

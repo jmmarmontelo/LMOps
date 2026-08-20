@@ -66,7 +66,7 @@ def _porta_aberta(host: str, port: int) -> bool:
 
 
 def iniciar_servidor_e5(
-        index_dir: Path, corpus_dir: Path, host: str = "localhost", port: int = 8090, timeout: int = 600,
+        index_dir: Path, corpus_dir: Optional[Path] = None, host: str = "localhost", port: int = 8090, timeout: int = 600,
 ) -> Optional[subprocess.Popen]:
     if _porta_aberta(host, port):
         print(f"Servidor E5 ja rodando em {host}:{port}.")
@@ -75,7 +75,10 @@ def iniciar_servidor_e5(
     print(f"Iniciando servidor E5 (mini-corpus) em {host}:{port}, log em {E5_SERVER_LOG}...")
     env = os.environ.copy()
     env["INDEX_DIR"] = str(index_dir)
-    env["CORPUS_DIR"] = str(corpus_dir)
+    # CORPUS_DIR so setado quando um corpus local e passado -- sem isso, load_corpus()
+    # (data_utils.py) cai no default de baixar o corpus completo do HuggingFace.
+    if corpus_dir is not None:
+        env["CORPUS_DIR"] = str(corpus_dir)
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
 
     log_file = open(E5_SERVER_LOG, "w")

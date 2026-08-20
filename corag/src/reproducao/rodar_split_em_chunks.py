@@ -10,6 +10,12 @@ Por padrao cada EXECUCAO processa so 1 chunk novo (o proximo ainda sem log) e pa
 sozinha -- rode o script de novo (em outro horario, outra sessao) pra continuar de
 onde parou. Isso e controlado por MAX_CHUNKS (ver abaixo).
 
+CORPUS_COMPLETO=1 troca o mini-corpus por chunk pelo corpus KILT completo (via indice
+FAISS pre-construido, ver src/search/construir_indice_faiss.py) -- mais fiel ao paper
+(retrieval por sub-pergunta busca entre todos os ~36M documentos, nao so um mini-corpus
+por chunk), servidor E5 unico pra toda a execucao (nao um por chunk, ja que o indice nao
+muda entre chunks).
+
 Config via env vars (mesmo estilo de best_of_n.py / dynamic_chain.py):
     TASK, CHUNK_SIZE, ESTRATEGIA (greedy / best_of_n / dynamic_chain), N_CHAINS,
     MAX_PATH_LENGTH, NUM_THREADS, N_DISTRATORES_POR_CHUNK,
@@ -17,6 +23,8 @@ Config via env vars (mesmo estilo de best_of_n.py / dynamic_chain.py):
     MAX_CHUNKS (orcamento de chunks NOVOS a processar nesta execucao antes de parar;
     default 1 = para a cada bloco. 0 ou negativo = sem limite, roda o split inteiro
     numa chamada so, igual ao comportamento antigo)
+    CORPUS_COMPLETO (default "0"; "1" usa o corpus completo em vez do mini-corpus)
+    FAISS_INDEX_DIR (default "data/e5-large-index-faiss", so usado com CORPUS_COMPLETO=1)
 
 Metricas: calculadas ao final de cada execucao, sobre todos os chunks concluidos ate
 ali (novos desta rodada + os que ja existiam de rodadas anteriores). Gravadas em
@@ -68,6 +76,11 @@ LIMPAR_MINI_CORPUS_APOS_CHUNK = os.getenv("LIMPAR_MINI_CORPUS_APOS_CHUNK", "0") 
 # continuar. 0/negativo tambem vira "sem limite".
 _max_chunks_env = int(os.getenv("MAX_CHUNKS", "1"))
 MAX_CHUNKS: Optional[int] = None if _max_chunks_env <= 0 else _max_chunks_env
+# Modo corpus completo: usa o indice FAISS (construido por
+# src/search/construir_indice_faiss.py) + corpus KILT completo, em vez do
+# mini-corpus por chunk -- fiel ao paper, exige o indice ja construido.
+CORPUS_COMPLETO = os.getenv("CORPUS_COMPLETO", "0") == "1"
+FAISS_INDEX_DIR = REPO_ROOT / os.getenv("FAISS_INDEX_DIR", "data/e5-large-index-faiss")
 
 # Compartilhado entre estrategias: a construcao do mini-corpus nao depende de ESTRATEGIA.
 MINI_CHUNKS_DIR = REPO_ROOT / "data" / "mini_chunks" / TASK
@@ -165,6 +178,36 @@ def processar_chunk(task: str, start: int, end: int, corpus_len: int, split: Opt
     return resultados
 
 
+def processar_chunk_corpus_completo(
+        task: str, start: int, end: int, split: Optional[str], log_path: Path, corpus_geral: Dataset,
+) -> List[Dict]:
+    """Mesma ideia de processar_chunk, mas contra o corpus completo (indice FAISS +
+    corag/kilt-corpus inteiro) em vez de um mini-corpus por chunk. Sem construcao de
+    mini-corpus nem remapeamento de ids (context_doc_ids do dataset ja apontam certo
+    pro corpus completo), e sem iniciar/parar servidor E5 aqui -- ele e unico pra toda
+    a execucao (feito em main(), ja que o indice nao muda entre chunks)."""
+    fatia = fatiar_dataset_sequencial(task, start, end, split=split)
+
+    if ESTRATEGIA == "dynamic_chain":
+        corag_agent = _montar_agente(
+            model=os.getenv("MODEL_NAME", "corag-8b"),
+            api_key=os.environ["API_KEY"], base_url=os.environ["BASE_URL"],
+            corpus=corpus_geral,
+        )
+        return executar_dynamic_chain_dataset(
+            fatia, corag_agent, n=N_CHAINS, max_path_length=MAX_PATH_LENGTH,
+            log_path=str(log_path), num_threads=NUM_THREADS, rotulo=f"[{task} {start}-{end}] ",
+        )
+
+    return executar_rag(
+        fatia, corpus_geral,
+        base_url=os.environ["BASE_URL"], api_key=os.environ["API_KEY"],
+        model=os.getenv("MODEL_NAME", "corag-8b"),
+        max_path_length=MAX_PATH_LENGTH, log_path=str(log_path),
+        estrategia=ESTRATEGIA, n=N_CHAINS, num_threads=NUM_THREADS,
+    )
+
+
 def main() -> None:
     load_dotenv()
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -176,36 +219,57 @@ def main() -> None:
     logger.info(f"[{TASK}] {total} perguntas no split; {n_chunks_total} chunk(s) de {CHUNK_SIZE} no total"
                 f"{f' (ate {MAX_CHUNKS} chunk(s) novo(s) nesta execucao)' if MAX_CHUNKS is not None else ''}.")
 
-    tabela_shards = construir_tabela_shards(INDEX_DIR_ORIGINAL)
-    corpus_len = tabela_shards[-1][2]
+    corpus_geral = None
+    processo_e5_completo = None
+    corpus_len = None
+    if CORPUS_COMPLETO:
+        logger.info(f"[{TASK}] Modo corpus completo: iniciando servidor E5 (indice FAISS) uma vez.")
+        _matar_processo_na_porta()
+        processo_e5_completo = iniciar_servidor_e5(FAISS_INDEX_DIR, None)
+        corpus_geral = load_corpus()
+    else:
+        tabela_shards = construir_tabela_shards(INDEX_DIR_ORIGINAL)
+        corpus_len = tabela_shards[-1][2]
 
     todos_resultados: List[Dict] = []
     chunks_novos = 0
     chunks_pulados = 0
     parou_com_pendencias = False
-    for i in range(n_chunks_total):
-        start, end = i * CHUNK_SIZE, min((i + 1) * CHUNK_SIZE, total)
-        log_path = LOGS_DIR / f"rag_log_{start:06d}-{end:06d}.jsonl"
+    try:
+        for i in range(n_chunks_total):
+            start, end = i * CHUNK_SIZE, min((i + 1) * CHUNK_SIZE, total)
+            log_path = LOGS_DIR / f"rag_log_{start:06d}-{end:06d}.jsonl"
 
-        if log_path.exists():
-            logger.info(f"Chunk {start}-{end} ja processado, pulando.")
-            todos_resultados.extend(_ler_jsonl(log_path))
-            chunks_pulados += 1
-            continue
+            if log_path.exists():
+                logger.info(f"Chunk {start}-{end} ja processado, pulando.")
+                todos_resultados.extend(_ler_jsonl(log_path))
+                chunks_pulados += 1
+                continue
 
-        if MAX_CHUNKS is not None and chunks_novos >= MAX_CHUNKS:
-            parou_com_pendencias = True
-            logger.info(f"Limite de {MAX_CHUNKS} chunk(s) novo(s) atingido nesta execucao; "
-                        f"chunk {start}-{end} (e possiveis seguintes) ficam para a proxima execucao.")
-            break
+            if MAX_CHUNKS is not None and chunks_novos >= MAX_CHUNKS:
+                parou_com_pendencias = True
+                logger.info(f"Limite de {MAX_CHUNKS} chunk(s) novo(s) atingido nesta execucao; "
+                            f"chunk {start}-{end} (e possiveis seguintes) ficam para a proxima execucao.")
+                break
 
-        inicio_chunk = time.time()
-        resultados = processar_chunk(TASK, start, end, corpus_len=corpus_len, split=split, log_path=log_path)
-        duracao_chunk = time.time() - inicio_chunk
-        logger.info(f"[{TASK}] Chunk {start}-{end}: {duracao_chunk:.1f}s ({duracao_chunk / 60:.1f} min) "
-                    f"para {len(resultados)} pergunta(s), media {duracao_chunk / len(resultados):.2f}s/pergunta.")
-        todos_resultados.extend(resultados)
-        chunks_novos += 1
+            inicio_chunk = time.time()
+            if CORPUS_COMPLETO:
+                resultados = processar_chunk_corpus_completo(
+                    TASK, start, end, split=split, log_path=log_path, corpus_geral=corpus_geral,
+                )
+            else:
+                resultados = processar_chunk(TASK, start, end, corpus_len=corpus_len, split=split, log_path=log_path)
+            duracao_chunk = time.time() - inicio_chunk
+            logger.info(f"[{TASK}] Chunk {start}-{end}: {duracao_chunk:.1f}s ({duracao_chunk / 60:.1f} min) "
+                        f"para {len(resultados)} pergunta(s), media {duracao_chunk / len(resultados):.2f}s/pergunta.")
+            todos_resultados.extend(resultados)
+            chunks_novos += 1
+    finally:
+        # Modo CORPUS_COMPLETO: servidor unico pra execucao inteira, iniciado antes do
+        # loop -- garantir que e derrubado mesmo se um chunk lancar excecao no meio,
+        # senao fica orfao consumindo RAM ate a proxima execucao matar ele.
+        if processo_e5_completo is not None:
+            parar_servidor_e5(processo_e5_completo)
 
     duracao_execucao = time.time() - inicio_execucao
     chunks_concluidos = chunks_pulados + chunks_novos
