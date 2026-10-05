@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPMC-RAG sem placeholders</title>
+<style>
+:root {
+  --bg: #e9e6e0;
+  --surface: #fcfbf8;
+  --ink: #1c1e23;
+  --ink-2: #474c57;
+  --muted: #6b7180;
+  --line: #d8d4cc;
+  --accent: #2a55c9;
+  --accent-bg: #e7edfc;
+  --llm: #6a47cc;
+  --llm-bg: #efe9fd;
+  --local: #19776a;
+  --local-bg: #e1f2ee;
+  --io: #5b6270;
+  --io-bg: #efefec;
+  --warn: #a96400;
+  --warn-bg: #fcefd9;
+  --ok: #2c7a32;
+  --bad: #b3261e;
+  --bad-bg: #fbe7e5;
+  --code-bg: #f1eee8;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0f13; --surface: #181b22; --ink: #e9eaee; --ink-2: #b9bdc8; --muted: #8e94a2;
+    --line: #333845; --accent: #7ea4ff; --accent-bg: #1e2944; --llm: #b7a1ff; --llm-bg: #29223f;
+    --local: #5ccab8; --local-bg: #14322d; --io: #a7adba; --io-bg: #242731; --warn: #f2b65a;
+    --warn-bg: #392b12; --ok: #74d17a; --bad: #ff8d84; --bad-bg: #3b1b1a; --code-bg: #20232b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0f13; --surface: #181b22; --ink: #e9eaee; --ink-2: #b9bdc8; --muted: #8e94a2;
+  --line: #333845; --accent: #7ea4ff; --accent-bg: #1e2944; --llm: #b7a1ff; --llm-bg: #29223f;
+  --local: #5ccab8; --local-bg: #14322d; --io: #a7adba; --io-bg: #242731; --warn: #f2b65a;
+  --warn-bg: #392b12; --ok: #74d17a; --bad: #ff8d84; --bad-bg: #3b1b1a; --code-bg: #20232b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); overflow: hidden; }
+
+.viewport { position: fixed; inset: 0; overflow: hidden; }
+.stage {
+  position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px;
+  transform: translate(-50%, -50%) scale(var(--scale, 1));
+  background: var(--surface); border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.18);
+}
+.slide { position: absolute; inset: 0; padding: 44px 56px 64px; display: none; flex-direction: column; }
+.slide.active { display: flex; }
+
+.kicker { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 650; margin: 0 0 6px; }
+h1 { font-size: 54px; line-height: 1.08; margin: 0 0 18px; letter-spacing: -.01em; }
+h2 { font-size: 34px; line-height: 1.15; margin: 0 0 22px; letter-spacing: -.005em; }
+h3 { font-size: 19px; margin: 0 0 10px; }
+p, li { font-size: 19px; line-height: 1.5; color: var(--ink-2); }
+p { margin: 0 0 12px; }
+ul { margin: 0; padding-left: 22px; }
+li { margin: 0 0 8px; }
+li::marker { color: var(--accent); }
+strong { color: var(--ink); }
+code, .mono { font-family: var(--font-mono); font-size: .9em; }
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+.muted { color: var(--muted); }
+.small { font-size: 15px; }
+.lead { font-size: 22px; color: var(--ink-2); max-width: 980px; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.cols-2-1 { display: grid; grid-template-columns: 1.35fr 1fr; gap: 28px; }
+.grow { flex: 1; min-height: 0; }
+.center { display: flex; align-items: center; justify-content: center; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.card p, .card li { font-size: 17px; }
+.card h3 { display: flex; align-items: center; gap: 10px; }
+.tag { display: inline-block; font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); background: var(--io-bg); }
+.tag.llm { color: var(--llm); background: var(--llm-bg); border-color: transparent; }
+.tag.loc { color: var(--local); background: var(--local-bg); border-color: transparent; }
+.tag.warn { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+.tag.ok { color: var(--ok); background: var(--local-bg); border-color: transparent; }
+.tag.bad { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
+
+.callout { border-left: 4px solid var(--accent); background: var(--accent-bg); padding: 12px 16px; border-radius: 0 10px 10px 0; font-size: 17px; color: var(--ink); line-height: 1.45; }
+.callout.warn { border-color: var(--warn); background: var(--warn-bg); }
+
+table { border-collapse: collapse; width: 100%; font-size: 16px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-2); }
+th { color: var(--ink); font-weight: 650; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.hl td { background: var(--accent-bg); color: var(--ink); }
+
+pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; }
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent); }
+pre .w { color: var(--warn); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.chip { font-size: 15px; padding: 6px 12px; border-radius: 999px; background: var(--io-bg); border: 1px solid var(--line); color: var(--ink-2); }
+.chip b { color: var(--ink); }
+
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 16px; height: 12px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
+.sw.llm { background: var(--llm-bg); border-color: var(--llm); }
+.sw.loc { background: var(--local-bg); border-color: var(--local); }
+.sw.io { background: var(--io-bg); border-color: var(--io); }
+.sw.dec { background: var(--warn-bg); border-color: var(--warn); transform: rotate(45deg) scale(.8); }
+.sw.ret { border: none; border-top: 2px dashed var(--warn); height: 0; border-radius: 0; }
+
+.formula { font-family: var(--font-mono); font-size: 26px; color: var(--ink); background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+.formula small { display: block; font-family: var(--font-sans); font-size: 15px; color: var(--muted); margin-top: 6px; }
+.big { font-size: 44px; font-weight: 700; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+.stat { display: flex; flex-direction: column; gap: 6px; }
+.stat .big { font-size: 36px; }
+pre.term { font-size: 10.5px; line-height: 1.55; white-space: pre; overflow: hidden; }
+pre.tree { font-size: 12.5px; white-space: pre; }
+h2.q { font-size: 28px; }
+
+.chain-col ol { margin: 0; padding-left: 24px; }
+.chain-col li { font-size: 16.5px; margin-bottom: 7px; }
+.chain-col li.redund { color: var(--warn); }
+
+/* diagramas */
+svg.dg { width: 100%; height: auto; display: block; overflow: visible; }
+.dgwrap { position: relative; flex: 1; min-height: 0; }
+.dgwrap > svg.dg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.n rect, .n polygon { stroke-width: 1.6; }
+.n.llm rect { fill: var(--llm-bg); stroke: var(--llm); }
+.n.loc rect { fill: var(--local-bg); stroke: var(--local); }
+.n.io rect { fill: var(--io-bg); stroke: var(--io); }
+.n.iow rect { fill: var(--warn-bg); stroke: var(--warn); stroke-dasharray: 6 4; }
+.n.err rect { fill: var(--bad-bg); stroke: var(--bad); }
+.n.dec polygon { fill: var(--warn-bg); stroke: var(--warn); }
+.n.cls rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.6; }
+.n.cls rect.hdr { fill: var(--accent-bg); stroke: none; }
+.n.cls line { stroke: var(--line); stroke-width: 1; }
+.tt { font: 600 15px var(--font-sans); fill: var(--ink); }
+.tm { font: 600 14px var(--font-mono); fill: var(--ink); }
+.tms { font: 600 12.5px var(--font-mono); fill: var(--ink); }
+.tf { font: 500 13.5px var(--font-mono); fill: var(--ink); }
+.tf.hl { fill: var(--accent); font-weight: 700; }
+.ts { font: 12.5px var(--font-sans); fill: var(--ink-2); }
+.th { font: 700 17px var(--font-sans); fill: var(--ink); }
+.e { fill: none; stroke: var(--ink-2); stroke-width: 1.6; }
+.e.w { stroke: var(--warn); stroke-dasharray: 7 5; stroke-width: 1.8; }
+.e.g { stroke: var(--ok); stroke-width: 1.8; }
+.e.b { stroke: var(--bad); stroke-width: 1.8; }
+.e.a { stroke: var(--accent); stroke-width: 1.8; }
+.mk { fill: var(--ink-2); }
+.mk.w { fill: var(--warn); }
+.mk.g { fill: var(--ok); }
+.mk.b { fill: var(--bad); }
+.mk.a { fill: var(--accent); }
+.el { font: 600 12.5px var(--font-sans); fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.el.w { fill: var(--warn); }
+.el.g { fill: var(--ok); }
+.el.b { fill: var(--bad); }
+.el.a { fill: var(--accent); }
+
+/* rodapé e controles */
+.foot { position: absolute; left: 56px; right: 56px; bottom: 20px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--muted); pointer-events: none; }
+.controls { position: fixed; right: 14px; bottom: 12px; display: flex; gap: 6px; z-index: 5; }
+.controls button { font: 600 13px var(--font-sans); color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.controls button:hover { color: var(--ink); border-color: var(--ink-2); }
+.controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* capa */
+.cover { justify-content: center; padding-left: 80px; }
+.cover .rule { width: 72px; height: 5px; background: var(--accent); border-radius: 3px; margin-bottom: 26px; }
+.cover .meta { margin-top: 34px; font-size: 17px; color: var(--muted); line-height: 1.6; }
+
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  body { overflow: visible; background: none; }
+  .viewport { position: static; }
+  .stage { position: static; transform: none; box-shadow: none; border-radius: 0; width: auto; height: auto; }
+  .slide { display: flex !important; position: relative; width: 1280px; height: 720px; break-after: page; }
+  .controls { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="viewport">
+<main class="stage" id="stage">
+
+<!-- 1 · Capa -->
+<section class="slide cover" aria-label="Capa">
+  <div class="rule"></div>
+  <p class="kicker">Multi-hop QA · Chain-of-Retrieval</p>
+  <h1>SPMC-RAG sem placeholders</h1>
+  <p class="lead">Plano estruturado, cadeias de raciocínio em paralelo e resposta final com evidências</p>
+  <div class="meta">
+    <span class="mono">src/SPMC/SPMC_no_placeholder/spmc_no_placeholder.py</span><br>
+    Joao Marcos Marmontelo · outubro de 2026
+  </div>
+</section>
+
+<!-- 2 · Motivação -->
+<section class="slide" aria-label="A ideia">
+  <p class="kicker">Visão geral</p>
+  <h2>A ideia em quatro passos</h2>
+  <div class="cols-2-1 grow">
+    <div>
+      <ul>
+        <li>Um LLM gera um <strong>plano</strong> com <strong>N cadeias alternativas</strong> de <strong>L passos</strong> para a mesma pergunta.</li>
+        <li>Cada passo é só um <strong>texto guia</strong> em linguagem natural: diz o que descobrir, nunca o valor.</li>
+        <li>As cadeias executam <strong>em paralelo e isoladas</strong>. Em cada passo: gera a subpergunta, recupera top-k chunks, gera a subresposta.</li>
+        <li>Uma <strong>resposta final</strong> cruza as cadeias e os chunks mais relevantes para a pergunta.</li>
+      </ul>
+      <div class="chips">
+        <span class="chip"><b>N = 4</b> cadeias</span>
+        <span class="chip"><b>L = 6</b> passos</span>
+        <span class="chip"><b>top-5</b> chunks por passo</span>
+        <span class="chip"><b>20</b> chunks no prompt final</span>
+        <span class="chip"><b>até 3</b> subperguntas novas por passo</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Sem placeholders</h3>
+      <p>Um passo que depende de outro diz isso em texto:</p>
+      <p><code>"Find the nationality of the character identified in step 1."</code></p>
+      <p>Na execução, o LLM de subpergunta lê o histórico da cadeia e troca a referência pela subresposta do passo 1:</p>
+      <p><code>"What was the nationality of Otto von Bismarck…?"</code></p>
+      <p class="small muted">Modelo: gpt-oss:120b via Ollama · retrieval: E5-large-v2 no mini-corpus</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · Diagrama: fluxo geral -->
+<section class="slide" aria-label="Fluxo geral">
+  <p class="kicker">Diagrama 1</p>
+  <h2>Fluxo geral: dois grafos LangGraph</h2>
+  <div class="dgwrap">
+  <svg class="dg" viewBox="0 0 1160 470" role="img" aria-label="Pergunta vai para gerar_plano, que dispara N cadeias em paralelo; quando todas terminam, gerar_resposta_final produz a resposta.">
+    <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+    <g class="n io"><rect x="0" y="195" width="140" height="80" rx="10"/>
+      <text x="70" y="229" class="tt" text-anchor="middle">Pergunta</text>
+      <text x="70" y="251" class="ts" text-anchor="middle">questao, N, L</text></g>
+    <path class="e" d="M140,235 H180" marker-end="url(#a1)"/>
+    <g class="n llm"><rect x="182" y="190" width="190" height="90" rx="10"/>
+      <text x="277" y="222" class="tm" text-anchor="middle">gerar_plano</text>
+      <text x="277" y="244" class="ts" text-anchor="middle">LLM · json_mode</text>
+      <text x="277" y="264" class="ts" text-anchor="middle">→ Plano N × L</text></g>
+    <text x="401" y="50" class="el a" text-anchor="middle">Send × N</text>
+    <path class="e a" d="M372,235 C402,235 400,85 428,85" marker-end="url(#a1)"/>
+    <path class="e a" d="M372,235 C402,235 400,185 428,185" marker-end="url(#a1)"/>
+    <path class="e a" d="M372,235 C402,235 400,285 428,285" marker-end="url(#a1)"/>
+    <path class="e a" d="M372,235 C402,235 400,385 428,385" marker-end="url(#a1)"/>
+    <g class="n loc"><rect x="430" y="53" width="270" height="64" rx="10"/>
+      <text x="565" y="80" class="tt" text-anchor="middle">Cadeia 1</text>
+      <text x="565" y="101" class="ts" text-anchor="middle">subpergunta → retrieve → subresposta</text></g>
+    <g class="n loc"><rect x="430" y="153" width="270" height="64" rx="10"/>
+      <text x="565" y="180" class="tt" text-anchor="middle">Cadeia 2</text>
+      <text x="565" y="201" class="ts" text-anchor="middle">subpergunta → retrieve → subresposta</text></g>
+    <g class="n loc"><rect x="430" y="253" width="270" height="64" rx="10"/>
+      <text x="565" y="280" class="tt" text-anchor="middle">Cadeia 3</text>
+      <text x="565" y="301" class="ts" text-anchor="middle">subpergunta → retrieve → subresposta</text></g>
+    <g class="n loc"><rect x="430" y="353" width="270" height="64" rx="10"/>
+      <text x="565" y="380" class="tt" text-anchor="middle">Cadeia N</text>
+      <text x="565" y="401" class="ts" text-anchor="middle">subpergunta → retrieve → subresposta</text></g>
+    <path class="e" d="M700,85 C740,85 736,235 768,235" marker-end="url(#a1)"/>
+    <path class="e" d="M700,185 C740,185 736,235 768,235" marker-end="url(#a1)"/>
+    <path class="e" d="M700,285 C740,285 736,235 768,235" marker-end="url(#a1)"/>
+    <path class="e" d="M700,385 C740,385 736,235 768,235" marker-end="url(#a1)"/>
+    <g class="n llm"><rect x="770" y="185" width="220" height="100" rx="10"/>
+      <text x="880" y="217" class="tm" text-anchor="middle">gerar_resposta_final</text>
+      <text x="880" y="240" class="ts" text-anchor="middle">top-20 chunks + cadeias</text>
+      <text x="880" y="261" class="ts" text-anchor="middle">FINAL_PROMPT</text></g>
+    <path class="e" d="M990,235 H1018" marker-end="url(#a1)"/>
+    <g class="n io"><rect x="1020" y="195" width="140" height="80" rx="10"/>
+      <text x="1090" y="229" class="tt" text-anchor="middle">Resposta</text>
+      <text x="1090" y="251" class="ts" text-anchor="middle">+ linha no .jsonl</text></g>
+    <text x="565" y="452" class="el" text-anchor="middle">cada cadeia roda isolada, com estado próprio · a resposta final só roda quando as N terminam (barreira)</text>
+  </svg>
+  </div>
+  <div class="legend">
+    <span><i class="sw llm"></i>chamada ao LLM</span>
+    <span><i class="sw loc"></i>processamento local / subgrafo</span>
+    <span><i class="sw io"></i>entrada / saída</span>
+  </div>
+</section>
+
+<!-- 4 · Diagrama: gerador de planos -->
+<section class="slide" aria-label="Gerador de planos">
+  <p class="kicker">Diagrama 2 · nó gerar_plano</p>
+  <h2>Gerador de planos</h2>
+  <div class="dgwrap">
+  <svg class="dg" viewBox="0 0 1120 470" role="img" aria-label="O prompt de plano e a pergunta vão ao LLM; a resposta é recortada, validada pelo Pydantic e conferida contra N e L; se inválida, regenera até 3 vezes, senão levanta ValueError.">
+    <defs>
+      <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+      <marker id="a2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk w"/></marker>
+      <marker id="a2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk g"/></marker>
+      <marker id="a2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk b"/></marker>
+    </defs>
+    <g class="n io"><rect x="0" y="40" width="250" height="70" rx="10"/>
+      <text x="125" y="70" class="tms" text-anchor="middle">PLAN_PROMPT.format(N, L)</text>
+      <text x="125" y="92" class="ts" text-anchor="middle">regras + exemplo (Titanic)</text></g>
+    <g class="n io"><rect x="0" y="140" width="250" height="70" rx="10"/>
+      <text x="125" y="170" class="tt" text-anchor="middle">pergunta</text>
+      <text x="125" y="192" class="ts" text-anchor="middle">mensagem user</text></g>
+    <path class="e" d="M250,75 C290,75 290,115 328,115" marker-end="url(#a2)"/>
+    <path class="e" d="M250,175 C290,175 290,145 328,145" marker-end="url(#a2)"/>
+    <g class="n llm"><rect x="330" y="85" width="220" height="90" rx="10"/>
+      <text x="440" y="116" class="tt" text-anchor="middle">gpt-oss:120b</text>
+      <text x="440" y="138" class="ts" text-anchor="middle">json_mode · T = 0</text>
+      <text x="440" y="158" class="ts" text-anchor="middle">max_tokens 8192</text></g>
+    <path class="e" d="M550,130 H598" marker-end="url(#a2)"/>
+    <g class="n loc"><rect x="600" y="90" width="190" height="80" rx="10"/>
+      <text x="695" y="122" class="tm" text-anchor="middle">_extrair_json</text>
+      <text x="695" y="143" class="ts" text-anchor="middle">recorta { … }</text>
+      <text x="695" y="161" class="ts" text-anchor="middle">tira vírgula sobrando</text></g>
+    <path class="e" d="M790,130 H838" marker-end="url(#a2)"/>
+    <g class="n loc"><rect x="840" y="90" width="270" height="80" rx="10"/>
+      <text x="975" y="122" class="tm" text-anchor="middle">Plano.model_validate_json</text>
+      <text x="975" y="143" class="ts" text-anchor="middle">schema Pydantic</text>
+      <text x="975" y="161" class="ts" text-anchor="middle">aceita "k" como "id"</text></g>
+    <path class="e" d="M975,170 V243" marker-end="url(#a2)"/>
+    <g class="n loc"><rect x="840" y="245" width="270" height="80" rx="10"/>
+      <text x="975" y="279" class="tm" text-anchor="middle">_checar_formato</text>
+      <text x="975" y="301" class="ts" text-anchor="middle">N cadeias? ids 1..L?</text></g>
+    <path class="e" d="M840,285 H777" marker-end="url(#a2)"/>
+    <g class="n dec"><polygon points="700,235 775,285 700,335 625,285"/>
+      <text x="700" y="290" class="tt" text-anchor="middle">válido?</text></g>
+    <path class="e b" d="M625,285 H527" marker-end="url(#a2b)"/>
+    <text x="576" y="276" class="el b" text-anchor="middle">não</text>
+    <g class="n dec"><polygon points="440,235 525,285 440,335 355,285"/>
+      <text x="440" y="290" class="tt" text-anchor="middle">tentativa &lt; 3?</text></g>
+    <path class="e w" d="M440,235 V177" marker-end="url(#a2w)"/>
+    <text x="452" y="212" class="el w">sim: regenera</text>
+    <path class="e b" d="M355,285 H252" marker-end="url(#a2b)"/>
+    <text x="304" y="276" class="el b" text-anchor="middle">não</text>
+    <g class="n err"><rect x="0" y="245" width="250" height="80" rx="10"/>
+      <text x="125" y="279" class="tt" text-anchor="middle">ValueError</text>
+      <text x="125" y="301" class="ts" text-anchor="middle">pergunta falha (tentativas no log)</text></g>
+    <path class="e g" d="M700,335 V383" marker-end="url(#a2g)"/>
+    <text x="712" y="364" class="el g">sim</text>
+    <g class="n io"><rect x="590" y="385" width="220" height="70" rx="10"/>
+      <text x="700" y="415" class="tt" text-anchor="middle">Plano validado</text>
+      <text x="700" y="437" class="ts" text-anchor="middle">+ plano_tentativas (log)</text></g>
+    <path class="e" d="M810,420 H868" marker-end="url(#a2)"/>
+    <g class="n io"><rect x="870" y="385" width="240" height="70" rx="10"/>
+      <text x="990" y="415" class="tt" text-anchor="middle">Send × N</text>
+      <text x="990" y="437" class="ts" text-anchor="middle">uma execução por cadeia</text></g>
+    <text x="0" y="404" class="ts">Erros de rede, 429 e 5xx:</text>
+    <text x="0" y="424" class="ts">RetryPolicy reexecuta o nó (até 5×)</text>
+  </svg>
+  </div>
+  <div class="legend">
+    <span><i class="sw llm"></i>chamada ao LLM</span>
+    <span><i class="sw loc"></i>validação local</span>
+    <span><i class="sw dec"></i>decisão</span>
+    <span><i class="sw ret"></i>regeneração</span>
+  </div>
+</section>
+
+<!-- 5 · Regras do PLAN_PROMPT -->
+<section class="slide" aria-label="Regras do prompt de plano">
+  <p class="kicker">PLAN_PROMPT</p>
+  <h2>O que o prompt exige do plano</h2>
+  <div class="cols grow" style="grid-template-rows: auto auto; align-content: start;">
+    <div class="card">
+      <h3>Nunca escrever valores</h3>
+      <p>Mesmo que o modelo saiba a resposta, o texto guia não traz nomes, datas ou lugares. Valores vêm do retrieval; um valor no plano pula o retrieval e propaga um erro pela cadeia.</p>
+    </div>
+    <div class="card">
+      <h3>Rotas realmente diferentes</h3>
+      <p>Outra entidade-ponte, outra ordem dos hops ou a relação reformulada (inversa, sinônimo). Mesmos passos na mesma ordem é duplicata.</p>
+    </div>
+    <div class="card">
+      <h3>Exatamente N × L</h3>
+      <p>Se a pergunta tem menos hops que L, os passos extras vêm <strong>antes</strong> do último e servem para verificar ou desambiguar. Nunca repetir passos.</p>
+    </div>
+    <div class="card">
+      <h3>Último passo = resposta</h3>
+      <p>O passo L produz a resposta, do tipo em <code>answer_type</code>. Em comparações, os passos anteriores buscam cada atributo e o último compara.</p>
+    </div>
+  </div>
+  <p class="small muted">Saída: JSON puro com <code>overview</code>, <code>entities</code>, <code>relations</code>, <code>answer_type</code> e <code>chains</code>. O prompt traz um exemplo (Titanic, 2 cadeias × 3 passos) que nunca escreve o nome do diretor.</p>
+</section>
+
+<!-- 6 · Diagrama: estrutura do plano -->
+<section class="slide" aria-label="Estrutura do plano">
+  <p class="kicker">Diagrama 3</p>
+  <h2>Estrutura do plano (schema Pydantic)</h2>
+  <div class="center" style="margin-top: 10px;">
+  <svg class="dg" viewBox="0 0 1160 270" role="img" aria-label="Plano contém overview, entities, relations, answer_type e uma lista de N Cadeias; cada Cadeia tem id, description e uma lista de L Passos; cada Passo tem id e guide_text.">
+    <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk a"/></marker></defs>
+    <!-- Plano -->
+    <g class="n cls">
+      <rect class="box" x="0" y="10" width="360" height="244" rx="10"/>
+      <rect class="hdr" x="1" y="11" width="358" height="43" rx="9"/>
+      <rect class="hdr" x="1" y="34" width="358" height="20"/>
+      <text x="18" y="39" class="th">Plano</text>
+      <text x="342" y="39" class="ts" text-anchor="end">1 por pergunta</text>
+      <line x1="0" y1="94" x2="360" y2="94"/><line x1="0" y1="134" x2="360" y2="134"/>
+      <line x1="0" y1="174" x2="360" y2="174"/><line x1="0" y1="214" x2="360" y2="214"/>
+      <text x="18" y="79" class="tf">overview: str</text><text x="342" y="79" class="ts" text-anchor="end">o que descobrir</text>
+      <text x="18" y="119" class="tf">entities: list[str]</text><text x="342" y="119" class="ts" text-anchor="end">entidades-chave</text>
+      <text x="18" y="159" class="tf">relations: list[str]</text><text x="342" y="159" class="ts" text-anchor="end">relações</text>
+      <text x="18" y="199" class="tf">answer_type: str</text><text x="342" y="199" class="ts" text-anchor="end">ex. person, city</text>
+      <text x="18" y="239" class="tf hl">chains: list[Cadeia]</text><text x="342" y="239" class="ts" text-anchor="end">N rotas</text>
+    </g>
+    <path class="e a" d="M360,234 C398,234 394,32 428,32" marker-end="url(#a3)"/>
+    <text x="397" y="134" class="el a" text-anchor="middle">1 : N</text>
+    <!-- Cadeia -->
+    <g class="n cls">
+      <rect class="box" x="430" y="10" width="330" height="164" rx="10"/>
+      <rect class="hdr" x="431" y="11" width="328" height="43" rx="9"/>
+      <rect class="hdr" x="431" y="34" width="328" height="20"/>
+      <text x="448" y="39" class="th">Cadeia</text>
+      <text x="742" y="39" class="ts" text-anchor="end">uma rota</text>
+      <line x1="430" y1="94" x2="760" y2="94"/><line x1="430" y1="134" x2="760" y2="134"/>
+      <text x="448" y="79" class="tf">id: int</text><text x="742" y="79" class="ts" text-anchor="end">1..N</text>
+      <text x="448" y="119" class="tf">description: str</text><text x="742" y="119" class="ts" text-anchor="end">como difere das outras</text>
+      <text x="448" y="159" class="tf hl">steps: list[Passo]</text><text x="742" y="159" class="ts" text-anchor="end">L passos</text>
+    </g>
+    <path class="e a" d="M760,154 C798,154 794,32 828,32" marker-end="url(#a3)"/>
+    <text x="797" y="94" class="el a" text-anchor="middle">1 : L</text>
+    <!-- Passo -->
+    <g class="n cls">
+      <rect class="box" x="830" y="10" width="330" height="124" rx="10"/>
+      <rect class="hdr" x="831" y="11" width="328" height="43" rx="9"/>
+      <rect class="hdr" x="831" y="34" width="328" height="20"/>
+      <text x="848" y="39" class="th">Passo</text>
+      <text x="1142" y="39" class="ts" text-anchor="end">um hop</text>
+      <line x1="830" y1="94" x2="1160" y2="94"/>
+      <text x="848" y="79" class="tf">id: int</text><text x="1142" y="79" class="ts" text-anchor="end">1..L · aceita "k"</text>
+      <text x="848" y="119" class="tf">guide_text: str</text><text x="1142" y="119" class="ts" text-anchor="end">o que descobrir</text>
+    </g>
+  </svg>
+  </div>
+  <div class="cols-3" style="margin-top: 26px;">
+    <div class="callout">Validado por <code>Plano.model_validate_json</code>. Campos extras do LLM são ignorados; <code>guide_text</code> vazio é rejeitado.</div>
+    <div class="callout">N e L só existem em runtime, então ficam fora do schema: <code>_checar_formato</code> exige N cadeias e ids exatamente <code>[1..L]</code>.</div>
+    <div class="callout">Sem triplas e sem placeholders: um passo é só o texto guia. As referências entre passos vão em linguagem natural.</div>
+  </div>
+</section>
+
+<!-- 7 · Exemplo de plano -->
+<section class="slide" aria-label="Exemplo de plano">
+  <p class="kicker">Exemplo real · hotpotqa, N = 2, L = 3</p>
+  <h2 class="q">"What nationality was Oliver Reed's character in the film Royal Flash?"</h2>
+  <div class="chips" style="margin-top: -6px; margin-bottom: 18px;">
+    <span class="chip"><b>overview</b> Determine the nationality of the character portrayed by Oliver Reed in Royal Flash.</span>
+    <span class="chip"><b>entities</b> Oliver Reed · Royal Flash</span>
+    <span class="chip"><b>answer_type</b> nationality</span>
+    <span class="chip"><b>gabarito</b> Prussian</span>
+  </div>
+  <div class="cols grow">
+    <div class="card chain-col">
+      <h3>Cadeia 1 <span class="tag">personagem → nacionalidade</span></h3>
+      <ol>
+        <li>Identify the character name portrayed by Oliver Reed in the film Royal Flash.</li>
+        <li>Find the nationality of the character identified in step 1.</li>
+        <li class="redund">Provide the nationality found in step 2 as the final answer. <span class="tag warn">repete o passo 2</span></li>
+      </ol>
+    </div>
+    <div class="card chain-col">
+      <h3>Cadeia 2 <span class="tag">elenco → personagem → nacionalidade</span></h3>
+      <ol>
+        <li>Retrieve the cast list of the film Royal Flash, including character names and the actors who played them.</li>
+        <li>From the cast list obtained in step 1, determine which character is played by Oliver Reed.</li>
+        <li>Find the nationality of the character identified in step 2 and present it as the final answer.</li>
+      </ol>
+    </div>
+  </div>
+  <p class="small muted">As duas rotas chegam ao mesmo fato por caminhos diferentes. Nenhum texto guia traz o nome "Otto von Bismarck": ele só aparece na execução.</p>
+</section>
+
+<!-- 8 · Diagrama: execução de uma cadeia -->
+<section class="slide" aria-label="Execução de uma cadeia">
+  <p class="kicker">Diagrama 4 · subgrafo de uma cadeia</p>
+  <h2>Execução de uma cadeia</h2>
+  <div class="dgwrap">
+  <svg class="dg" viewBox="0 0 1110 540" role="img" aria-label="gerar_subpergunta recebe a pergunta, o contexto acumulado, o texto guia e, em nova tentativa, as subperguntas que falharam; retrieve busca top-5; gerar_subresposta responde; se vier sem resposta e houver tentativas, volta com temperatura 0.7; senão grava no histórico e segue para o próximo passo até L.">
+    <defs>
+      <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+      <marker id="a4w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk w"/></marker>
+      <marker id="a4g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk g"/></marker>
+    </defs>
+    <g class="n io"><rect x="0" y="30" width="250" height="56" rx="10"/>
+      <text x="125" y="63" class="tt" text-anchor="middle">questão original</text></g>
+    <g class="n io"><rect x="0" y="100" width="250" height="74" rx="10"/>
+      <text x="125" y="127" class="tt" text-anchor="middle">contexto acumulado</text>
+      <text x="125" y="147" class="ts" text-anchor="middle">overview · entidades · relações</text>
+      <text x="125" y="164" class="ts" text-anchor="middle">subperguntas e respostas anteriores</text></g>
+    <g class="n io"><rect x="0" y="188" width="250" height="56" rx="10"/>
+      <text x="125" y="221" class="tt" text-anchor="middle">guide_text do passo k</text></g>
+    <g class="n iow"><rect x="0" y="258" width="250" height="64" rx="10"/>
+      <text x="125" y="285" class="tt" text-anchor="middle">subperguntas que falharam</text>
+      <text x="125" y="305" class="ts" text-anchor="middle">só numa nova tentativa</text></g>
+    <path class="e" d="M250,58 C290,58 286,140 318,140" marker-end="url(#a4)"/>
+    <path class="e" d="M250,137 C285,137 286,160 318,160" marker-end="url(#a4)"/>
+    <path class="e" d="M250,216 C285,216 286,180 318,180" marker-end="url(#a4)"/>
+    <path class="e w" d="M250,290 C290,290 286,200 318,200" marker-end="url(#a4w)"/>
+    <g class="n llm"><rect x="320" y="120" width="230" height="100" rx="10"/>
+      <text x="435" y="155" class="tm" text-anchor="middle">gerar_subpergunta</text>
+      <text x="435" y="177" class="ts" text-anchor="middle">SUBQ_PROMPT</text>
+      <text x="435" y="197" class="ts" text-anchor="middle">T = 0 · nova tentativa: T = 0.7</text></g>
+    <path class="e" d="M550,170 H598" marker-end="url(#a4)"/>
+    <g class="n loc"><rect x="600" y="130" width="190" height="80" rx="10"/>
+      <text x="695" y="164" class="tm" text-anchor="middle">retrieve</text>
+      <text x="695" y="187" class="ts" text-anchor="middle">E5 · top-5 do mini-corpus</text></g>
+    <path class="e" d="M790,170 H848" marker-end="url(#a4)"/>
+    <g class="n llm"><rect x="850" y="120" width="250" height="100" rx="10"/>
+      <text x="975" y="155" class="tm" text-anchor="middle">gerar_subresposta</text>
+      <text x="975" y="177" class="ts" text-anchor="middle">SUBA_PROMPT · T = 0</text>
+      <text x="975" y="197" class="ts" text-anchor="middle">só passages + subpergunta</text></g>
+    <path class="e" d="M975,220 V248" marker-end="url(#a4)"/>
+    <g class="n dec"><polygon points="975,250 1090,300 975,350 860,300"/>
+      <text x="975" y="295" class="tt" text-anchor="middle">SEM_RESPOSTA e</text>
+      <text x="975" y="314" class="tt" text-anchor="middle">tentativa &lt; 3?</text></g>
+    <path class="e w" d="M860,300 H470 V222" marker-end="url(#a4w)"/>
+    <text x="665" y="292" class="el w" text-anchor="middle">sim: gera subpergunta nova (T = 0.7)</text>
+    <path class="e" d="M975,350 V383" marker-end="url(#a4)"/>
+    <text x="987" y="371" class="el">não</text>
+    <g class="n loc"><rect x="850" y="385" width="250" height="66" rx="10"/>
+      <text x="975" y="413" class="tt" text-anchor="middle">grava no historico</text>
+      <text x="975" y="434" class="ts" text-anchor="middle">passo_atual + 1 · zera tentativas</text></g>
+    <path class="e" d="M850,418 H752" marker-end="url(#a4)"/>
+    <g class="n dec"><polygon points="650,373 750,418 650,463 550,418"/>
+      <text x="650" y="423" class="tt" text-anchor="middle">passo_atual &lt; L?</text></g>
+    <path class="e g" d="M550,418 H400 V222" marker-end="url(#a4g)"/>
+    <text x="475" y="408" class="el g" text-anchor="middle">sim: próximo passo</text>
+    <path class="e" d="M650,463 V488" marker-end="url(#a4)"/>
+    <text x="662" y="481" class="el">não</text>
+    <g class="n io"><rect x="540" y="490" width="220" height="46" rx="10"/>
+      <text x="650" y="519" class="tt" text-anchor="middle">END → cadeias_exec</text></g>
+  </svg>
+  </div>
+  <div class="legend">
+    <span><i class="sw llm"></i>chamada ao LLM</span>
+    <span><i class="sw loc"></i>local</span>
+    <span><i class="sw dec"></i>decisão</span>
+    <span><i class="sw ret"></i>nova tentativa do mesmo passo</span>
+  </div>
+</section>
+
+<!-- 9 · Um passo na prática -->
+<section class="slide" aria-label="Execução da cadeia 1">
+  <p class="kicker">Exemplo real · cadeia 1 do plano do Royal Flash</p>
+  <h2>A referência entre passos na prática</h2>
+  <table>
+    <thead><tr><th>Passo</th><th>Subpergunta gerada</th><th>Títulos recuperados (top-5)</th><th>Subresposta</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>What is the name of the character portrayed by Oliver Reed in the film Royal Flash?</td><td>Royal Flash (film) ×3, The Prisoner of Zenda, Oliver Reed</td><td><strong>Otto von Bismarck</strong></td></tr>
+      <tr class="hl"><td>2</td><td>What was the nationality of <strong>Otto von Bismarck</strong>, the character portrayed by Oliver Reed …?</td><td>Royal Flash (film) ×3, Royal Flash, The Prisoner of Zenda</td><td>No relevant information found</td></tr>
+      <tr><td>3</td><td>What nationality was Otto von Bismarck, the character …?</td><td>(os mesmos)</td><td>No relevant information found</td></tr>
+    </tbody>
+  </table>
+  <div class="cols-3" style="margin-top: 24px;">
+    <div class="callout">Passo 2: <em>"the character identified in step 1"</em> virou <strong>"Otto von Bismarck"</strong>. É o que substitui os placeholders.</div>
+    <div class="callout warn">O passo 3 do plano só repete o passo 2 e gasta um retrieve e duas chamadas ao LLM.</div>
+    <div class="callout warn">O top-5 é dominado por chunks do mesmo documento: <code>Royal Flash (film)</code> aparece três vezes.</div>
+  </div>
+</section>
+
+<!-- 10 · Retrieval -->
+<section class="slide" aria-label="Retrieval E5">
+  <p class="kicker">Nó retrieve</p>
+  <h2>Retrieval E5 dentro do processo</h2>
+  <div class="cols grow">
+    <div>
+      <ul>
+        <li><strong>Carregamento lazy</strong> na primeira chamada, sob <code>threading.Lock</code>: as N cadeias podem chegar juntas.</li>
+        <li><strong>Mesma convenção do índice:</strong> e5-large-v2, prefixo <code>"query: "</code>, mean pooling mascarado, normalização L2.</li>
+        <li><strong>Busca exaustiva</strong> no mini-corpus (15.937 chunks) e <code>torch.topk(5)</code>, sem FAISS.</li>
+        <li>Cada chunk volta com <code>idx</code> local, <code>doc_id</code> no KILT, score, título e texto.</li>
+      </ul>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div class="formula">score = E5("query: " + subpergunta) · embᵀ
+        <small>produto interno entre vetores L2-normalizados = similaridade de cosseno</small></div>
+      <div class="card">
+        <h3>De onde vem o mini-corpus</h3>
+        <p>Top-100 da <strong>pergunta original</strong> no corpus KILT (<code>context_doc_ids</code>) + 1.000 distratores aleatórios por benchmark.</p>
+        <p class="small muted">Não inclui as passagens gold: o documento do segundo hop pode não estar lá.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 · Diagrama: resposta final -->
+<section class="slide" aria-label="Geração da resposta final">
+  <p class="kicker">Diagrama 5 · nó gerar_resposta_final</p>
+  <h2>Geração da resposta final</h2>
+  <div class="dgwrap">
+  <svg class="dg" viewBox="0 0 1160 450" role="img" aria-label="Das cadeias saem dois caminhos: os chunks de todos os passos formam um pool, deduplicado e ordenado por similaridade E5 com a pergunta original, do qual saem os top-20; e as cadeias formatadas sem os passos sem resposta. Os dois vão ao LLM, que produz a resposta final.">
+    <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+    <g class="n io"><rect x="530" y="0" width="190" height="36" rx="18"/>
+      <text x="625" y="23" class="tt" text-anchor="middle">pergunta original</text></g>
+    <path class="e" d="M625,36 V68" marker-end="url(#a5)"/>
+    <g class="n io"><rect x="0" y="195" width="220" height="90" rx="10"/>
+      <text x="110" y="228" class="tm" text-anchor="middle">cadeias_exec</text>
+      <text x="110" y="250" class="ts" text-anchor="middle">N cadeias × L passos</text>
+      <text x="110" y="268" class="ts" text-anchor="middle">+ tentativas que falharam</text></g>
+    <path class="e" d="M220,225 C252,225 248,110 278,110" marker-end="url(#a5)"/>
+    <path class="e" d="M220,255 C252,255 248,370 278,370" marker-end="url(#a5)"/>
+    <g class="n loc"><rect x="280" y="70" width="200" height="80" rx="10"/>
+      <text x="380" y="102" class="tt" text-anchor="middle">pool de chunks</text>
+      <text x="380" y="123" class="ts" text-anchor="middle">docs de todos os passos</text>
+      <text x="380" y="141" class="ts" text-anchor="middle">dedup por idx · conta freq</text></g>
+    <path class="e" d="M480,110 H528" marker-end="url(#a5)"/>
+    <g class="n loc"><rect x="530" y="70" width="190" height="80" rx="10"/>
+      <text x="625" y="102" class="tt" text-anchor="middle">score E5</text>
+      <text x="625" y="123" class="ts" text-anchor="middle">pergunta · chunk</text>
+      <text x="625" y="141" class="ts" text-anchor="middle">embeddings já em memória</text></g>
+    <path class="e" d="M720,110 H768" marker-end="url(#a5)"/>
+    <g class="n loc"><rect x="770" y="70" width="180" height="80" rx="10"/>
+      <text x="860" y="102" class="tt" text-anchor="middle">top-20</text>
+      <text x="860" y="123" class="ts" text-anchor="middle">desempate: freq</text>
+      <text x="860" y="141" class="ts" text-anchor="middle">corta em 600 chars</text></g>
+    <text x="860" y="176" class="el" text-anchor="middle">Retrieved passages</text>
+    <path class="e" d="M950,110 C976,110 964,215 988,215" marker-end="url(#a5)"/>
+    <g class="n loc"><rect x="280" y="330" width="260" height="80" rx="10"/>
+      <text x="410" y="362" class="tm" text-anchor="middle">_formatar_cadeias</text>
+      <text x="410" y="383" class="ts" text-anchor="middle">ordena por id</text>
+      <text x="410" y="401" class="ts" text-anchor="middle">descarta SEM_RESPOSTA</text></g>
+    <path class="e" d="M540,370 C800,370 900,265 988,265" marker-end="url(#a5)"/>
+    <text x="745" y="398" class="el" text-anchor="middle">Reasoning chains</text>
+    <g class="n llm"><rect x="990" y="185" width="170" height="110" rx="10"/>
+      <text x="1075" y="219" class="tms" text-anchor="middle">gerar_resposta_final</text>
+      <text x="1075" y="241" class="ts" text-anchor="middle">FINAL_PROMPT</text>
+      <text x="1075" y="260" class="ts" text-anchor="middle">passages + cadeias</text>
+      <text x="1075" y="279" class="ts" text-anchor="middle">gpt-oss · T = 0</text></g>
+    <path class="e" d="M1075,295 V343" marker-end="url(#a5)"/>
+    <g class="n io"><rect x="990" y="345" width="170" height="95" rx="10"/>
+      <text x="1075" y="376" class="tt" text-anchor="middle">resposta_final</text>
+      <text x="1075" y="397" class="ts" text-anchor="middle">docs_finais</text>
+      <text x="1075" y="416" class="ts" text-anchor="middle">llm_final → log</text></g>
+  </svg>
+  </div>
+  <p class="small" style="margin-top: 6px;">O prompt avisa que as subrespostas foram geradas por um LLM e podem estar erradas: se contradizem os passages, <strong>valem os passages</strong>. Sem conhecimento externo; resposta curta ou <code>No relevant information found</code>.</p>
+</section>
+
+<!-- 12 · Custo -->
+<section class="slide" aria-label="Custo por pergunta">
+  <p class="kicker">Custo</p>
+  <h2>Quantas chamadas e quanto tempo por pergunta</h2>
+  <div class="cols grow">
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div class="formula">1 + 2·N·L + 1 = 50 chamadas
+        <small>plano + (subpergunta + subresposta) por passo + resposta final · N = 4, L = 6</small></div>
+      <div class="formula">1 + 2·L + 1 = 14 em sequência
+        <small>as cadeias são paralelas: vale a cadeia mais lenta · ≈ 3,5 s por chamada</small></div>
+      <p class="small muted">Cada subpergunta nova (retry) soma 2 chamadas em sequência no passo que falhou. A seleção dos 20 chunks não chama o LLM: é um encode E5 local.</p>
+    </div>
+    <div class="cols" style="align-content: start; gap: 18px;">
+      <div class="card stat"><span class="muted small">sem chunks finais</span><span class="big">55,8 s</span><span class="small muted">por pergunta · 30 perguntas</span></div>
+      <div class="card stat"><span class="muted small">com 20 chunks finais</span><span class="big">50,7–55,0 s</span><span class="small muted">por pergunta · 2 runs de 30</span></div>
+      <div class="card stat" style="grid-column: span 2;"><span class="muted small">com 20 chunks + retry (até 3, T = 0.7)</span><span class="big">123–129 s</span><span class="small muted">por pergunta · 2 runs de 5 perguntas · mais que o dobro</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 · Log e prints -->
+<section class="slide" aria-label="Log e prints de execução">
+  <p class="kicker">Observabilidade</p>
+  <h2>O que fica no log e o que aparece no terminal</h2>
+  <div class="cols-2-1 grow">
+    <div>
+      <h3>Terminal: um bloco por passo</h3>
+<pre class="term"><span class="k">[1/1]</span> What nationality was Oliver Reed's character in the film Royal Flash?
+   [chain 1 | step 1/2] sub-question: What character did Oliver Reed portray …?
+                        sub-answer:   Otto von Bismarck
+   [chain 1 | step 2/2] sub-question: What is the nationality of Otto von Bismarck …?
+                        sub-answer:   No relevant information found  <span class="w">-&gt; trying a new sub-question</span>
+   <span class="w">[chain 1 | step 2/2 | retry 1/3]</span> sub-question: What country is the character … from?
+                                    sub-answer:   No relevant information found  <span class="w">-&gt; trying …</span>
+   …
+   <span class="k">=&gt; final answer:</span> German  (gold: ['Prussian'], em=0.0, f1=0.0, 68.5s)</pre>
+      <p class="small muted" style="margin-top: 12px;">As cadeias rodam em paralelo: os blocos aparecem na ordem em que cada passo termina. As duas linhas de um passo saem sempre juntas (lock).</p>
+    </div>
+    <div>
+      <h3>Log <code>.jsonl</code>: uma linha por pergunta</h3>
+<pre class="tree">query, answers, prediction, em, f1
+plano
+<span class="k">plano_tentativas[]</span>     <span class="c"># todas, até as inválidas</span>
+cadeias_exec[].historico[]
+  subpergunta, subresposta
+  chunks_detalhe[]      <span class="c"># idx, doc_id, score</span>
+  <span class="k">llm</span>{subpergunta, subresposta}
+  n_tentativas
+  <span class="w">tentativas_falhas[]</span>   <span class="c"># retries</span>
+docs_finais[]           <span class="c"># os 20 chunks</span>
+<span class="k">llm_final</span>
+
+<span class="c"># cada chamada ao LLM guarda:</span>
+system, user, resposta,
+raciocinio, temperature,
+finish_reason, tokens, tempo_s</pre>
+    </div>
+  </div>
+  <p class="small muted">≈ 48 KB por 10 chamadas: com N = 4 e L = 6, cerca de 250 KB por pergunta. O raciocínio vem do campo <code>reasoning</code> que o Ollama devolve para o gpt-oss.</p>
+</section>
+
+<!-- 14 · Resultados -->
+<section class="slide" aria-label="Resultados">
+  <p class="kicker">Resultados · mini dataset do hotpotqa</p>
+  <h2>O que já foi medido</h2>
+  <table>
+    <thead><tr><th>Configuração</th><th class="num">Perguntas</th><th class="num">EM</th><th class="num">F1</th><th class="num">s / pergunta</th></tr></thead>
+    <tbody>
+      <tr><td>SPMC sem placeholder · sem chunks no prompt final</td><td class="num">30</td><td class="num">53,3</td><td class="num">63,5</td><td class="num">55,8</td></tr>
+      <tr class="hl"><td>SPMC sem placeholder · 20 chunks no prompt final (2 runs, mesmo resultado)</td><td class="num">30</td><td class="num">56,7</td><td class="num">66,9</td><td class="num">50,7–55,0</td></tr>
+      <tr><td>SPMC sem placeholder · 20 chunks + retry de subpergunta</td><td class="num">5</td><td class="num">40,0</td><td class="num">56,0</td><td class="num">123–129</td></tr>
+      <tr><td>&nbsp;&nbsp;as mesmas 5 perguntas sem retry</td><td class="num">5</td><td class="num">40,0</td><td class="num">56,0</td><td class="num">≈ 51–56</td></tr>
+      <tr><td class="muted">Referência: CoRAG (<code>dynamic_chain</code>, corag-8b, n = 4, L = 6), medido em 17/09</td><td class="num muted">30</td><td class="num muted">56,7</td><td class="num muted">70,8</td><td class="num muted">—</td></tr>
+    </tbody>
+  </table>
+  <div class="cols" style="margin-top: 22px;">
+    <div class="callout">Os 20 chunks mudaram <strong>uma</strong> pergunta: <em>Gasherbrum II</em> passou de "No relevant information found" para a resposta certa (+3,3 EM).</div>
+    <div class="callout warn">O retry não mudou nenhuma das 5 perguntas e mais que dobrou o tempo. A amostra é pequena para concluir.</div>
+  </div>
+  <p class="small muted" style="margin-top: 14px;">Mesmas 30 perguntas e mesmo mini-corpus em todas as linhas. A referência do CoRAG vem do <code>CODIGO.md</code> do v1.</p>
+</section>
+
+<!-- 15 · Diagnóstico -->
+<section class="slide" aria-label="Diagnóstico de erros">
+  <p class="kicker">Diagnóstico</p>
+  <h2>Por que as respostas erradas erram</h2>
+  <div class="cols grow">
+    <div class="card">
+      <h3>14 erros do run sem chunks</h3>
+      <table>
+        <tbody>
+          <tr><td class="num"><span class="big" style="font-size: 34px;">9</span></td><td>gabarito <strong>nunca recuperado</strong> em nenhum passo de nenhuma cadeia</td></tr>
+          <tr><td class="num"><span class="big" style="font-size: 34px;">2</span></td><td>formato: <code>Bill Dudman</code> × <code>Dudman</code>; <code>1970–1989</code> × <code>1970s and 1980s</code></td></tr>
+          <tr><td class="num"><span class="big" style="font-size: 34px;">3</span></td><td>aparentes: gabarito ruidoso ou coincidência de texto</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted" style="margin-top: 10px;">O gargalo é o retrieval, não a extração.</p>
+    </div>
+    <div class="card">
+      <h3>Caso Royal Flash → "Prussian"</h3>
+      <ul>
+        <li class="small">O artigo <strong>Otto von Bismarck não está</strong> no mini-corpus.</li>
+        <li class="small">O único chunk com o fato é sobre <code>Juneau, Alaska</code>: "…Otto von Bismarck, the Prussian leader…".</li>
+        <li class="small">Posição dele no ranking: <strong>101ª a 278ª</strong> para as subperguntas geradas, que arrastam "the film Royal Flash".</li>
+        <li class="small">Mesmo <em>"What is the nationality of Otto von Bismarck?"</em> o deixa em <strong>28º</strong>, fora do top-5.</li>
+        <li class="small">O CoRAG também respondeu "German" em todas as configurações.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 16 · Limitações e próximos passos -->
+<section class="slide" aria-label="Limitações e próximos passos">
+  <p class="kicker">Fechamento</p>
+  <h2>Limitações e próximos passos</h2>
+  <div class="cols grow">
+    <div class="card">
+      <h3><span class="tag bad">limitações</span></h3>
+      <ul>
+        <li class="small">Uma cadeia com erro derruba a pergunta inteira, mesmo com as outras prontas.</li>
+        <li class="small">Plano inválido após 3 tentativas: a pergunta falha sem cadeias.</li>
+        <li class="small">"No relevant information found" só é reconhecido por igualdade exata.</li>
+        <li class="small">Passos de enchimento que só repetem o anterior.</li>
+        <li class="small">Top-k dominado por chunks do mesmo documento.</li>
+        <li class="small">Chunks finais só vêm do que as cadeias recuperaram.</li>
+        <li class="small">Subperguntas novas repetem o contexto que puxou os mesmos chunks.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="tag ok">próximos passos</span></h3>
+      <ul>
+        <li class="small">Medir o <strong>teto de EM</strong> do mini-corpus: em quantas perguntas o gabarito existe em algum chunk.</li>
+        <li class="small">Somar as <strong>passagens gold</strong> (<code>supporting_facts</code>) ao mini-corpus, ou usar o corpus KILT completo com FAISS.</li>
+        <li class="small">Prompt de retry que <strong>simplifica</strong> a subpergunta em vez de só reformular.</li>
+        <li class="small"><code>try/except</code> por cadeia, devolvendo o histórico parcial.</li>
+        <li class="small">Rodar 2WikiMultihopQA, MuSiQue e Bamboogle.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="foot"><span>SPMC-RAG sem placeholders</span><span id="counter">1 / 16</span></footer>
+</main>
+</div>
+
+<nav class="controls" aria-label="Navegação">
+  <button type="button" id="prev" aria-label="Slide anterior">←</button>
+  <button type="button" id="next" aria-label="Próximo slide">→</button>
+  <button type="button" id="theme" aria-label="Alternar tema claro/escuro">tema</button>
+  <button type="button" id="full" aria-label="Tela cheia">tela cheia</button>
+</nav>
+
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var stage = document.getElementById('stage');
+  var counter = document.getElementById('counter');
+  var atual = 0;
+
+  function mostrar(n) {
+    atual = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function (s, k) { s.classList.toggle('active', k === atual); });
+    counter.textContent = (atual + 1) + ' / ' + slides.length;
+    try { history.replaceState(null, '', '#' + (atual + 1)); } catch (e) {}
+  }
+
+  function ajustar() {
+    var s = Math.min(window.innerWidth / 1280, window.innerHeight / 720) * 0.97;
+    stage.style.setProperty('--scale', s);
+  }
+
+  function alternarTema() {
+    var raiz = document.documentElement;
+    var escuro = raiz.getAttribute('data-theme')
+      ? raiz.getAttribute('data-theme') === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var novo = escuro ? 'light' : 'dark';
+    raiz.setAttribute('data-theme', novo);
+    try { localStorage.setItem('spmc-tema', novo); } catch (e) {}
+  }
+
+  function telaCheia() {
+    if (!document.fullscreenElement) { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); }
+    else { document.exitFullscreen && document.exitFullscreen(); }
+  }
+
+  try {
+    var salvo = localStorage.getItem('spmc-tema');
+    if (salvo === 'light' || salvo === 'dark') document.documentElement.setAttribute('data-theme', salvo);
+  } catch (e) {}
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    var k = ev.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'ArrowDown') { ev.preventDefault(); mostrar(atual + 1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'ArrowUp' || k === 'Backspace') { ev.preventDefault(); mostrar(atual - 1); }
+    else if (k === 'Home') { mostrar(0); }
+    else if (k === 'End') { mostrar(slides.length - 1); }
+    else if (k === 'f' || k === 'F') { telaCheia(); }
+    else if (k === 't' || k === 'T') { alternarTema(); }
+  });
+
+  var x0 = null;
+  document.addEventListener('touchstart', function (ev) { x0 = ev.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', function (ev) {
+    if (x0 === null) return;
+    var dx = ev.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 50) mostrar(atual + (dx < 0 ? 1 : -1));
+    x0 = null;
+  });
+
+  document.getElementById('prev').addEventListener('click', function () { mostrar(atual - 1); });
+  document.getElementById('next').addEventListener('click', function () { mostrar(atual + 1); });
+  document.getElementById('theme').addEventListener('click', alternarTema);
+  document.getElementById('full').addEventListener('click', telaCheia);
+  window.addEventListener('resize', ajustar);
+
+  var inicial = parseInt((location.hash || '').slice(1), 10);
+  ajustar();
+  mostrar(isNaN(inicial) ? 0 : inicial - 1);
+})();
+</script>
+</body>
+</html>
