@@ -1,0 +1,102 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "hotpotqa",
+  "dataset_name": "multihopqa",
+  "dataset_size": 160240007,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/corag/multihopqa@d0f7c0943764bac7daa748364d49781dc7d0f7fd/hotpotqa/train-00000-of-00001.parquet": {
+      "num_bytes": 104413923,
+      "checksum": null
+    },
+    "hf://datasets/corag/multihopqa@d0f7c0943764bac7daa748364d49781dc7d0f7fd/hotpotqa/validation-00000-of-00001.parquet": {
+      "num_bytes": 7605850,
+      "checksum": null
+    }
+  },
+  "download_size": 112019773,
+  "features": {
+    "query": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "answers": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "query_id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "context_doc_ids": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "subqueries": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "subanswers": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "predictions": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "task_desc": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "gold_doc_ids": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "gold_titles": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 272259780,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 149164062,
+      "num_examples": 90447,
+      "dataset_name": "multihopqa"
+    },
+    "validation": {
+      "name": "validation",
+      "num_bytes": 11075945,
+      "num_examples": 7405,
+      "dataset_name": "multihopqa"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

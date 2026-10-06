@@ -609,8 +609,13 @@ def _carregar_mini_sem_lock() -> None:
     from datasets import Dataset
 
     corpus_dir = MINI_BASE_DIR / "corpus"
-    emb_path = MINI_BASE_DIR / "e5-large-index" / "e5-large-shard-0.pt"
-    if not corpus_dir.exists() or not emb_path.exists():
+    # Indice pode vir dividido em varios shards (data/mini_gold, pra caber no GitHub):
+    # concatena na ordem numerica do shard, que e a ordem das linhas do corpus.
+    shard_paths = sorted(
+        (MINI_BASE_DIR / "e5-large-index").glob("*-shard-*.pt"),
+        key=lambda p: int(re.search(r"-shard-(\d+)\.pt$", p.name).group(1)),
+    )
+    if not corpus_dir.exists() or not shard_paths:
         raise RuntimeError(
             f"mini-corpus nao encontrado em {MINI_BASE_DIR}. Gere com:\n"
             f"  PYTHONPATH=src python src/reproducao/construir_mini_corpus.py"
@@ -621,7 +626,9 @@ def _carregar_mini_sem_lock() -> None:
     # antes), uma thread concorrente que passasse pelo checkout RAPIDO (fora do lock, em
     # _carregar_mini) entre esta linha e a de "encode" veria corpus != None e devolveria
     # cedo, achando que jah carregou -- e encode() ainda seria None nesse instante.
-    emb = torch.load(str(emb_path), weights_only=True, map_location="cpu").to(torch.float32)
+    emb = torch.cat(
+        [torch.load(str(p), weights_only=True, map_location="cpu") for p in shard_paths]
+    ).to(torch.float32)
     encode = _carregar_encoder_e5()
     _MINI["emb"] = emb
     _MINI["encode"] = encode

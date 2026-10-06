@@ -1,4 +1,6 @@
-data/
+data/*
+!data/mini_gold/
+src/**/data/
 tmp/
 *.log
 __pycache__/

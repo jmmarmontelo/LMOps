@@ -1,0 +1,237 @@
+{
+  "builder_name": "parquet",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "kilt-corpus",
+  "dataset_size": 18038881943,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00000-of-00037.parquet": {
+      "num_bytes": 275353930,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00001-of-00037.parquet": {
+      "num_bytes": 274720900,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00002-of-00037.parquet": {
+      "num_bytes": 272434442,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00003-of-00037.parquet": {
+      "num_bytes": 273501979,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00004-of-00037.parquet": {
+      "num_bytes": 274091165,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00005-of-00037.parquet": {
+      "num_bytes": 275194533,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00006-of-00037.parquet": {
+      "num_bytes": 275824693,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00007-of-00037.parquet": {
+      "num_bytes": 275050997,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00008-of-00037.parquet": {
+      "num_bytes": 274938047,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00009-of-00037.parquet": {
+      "num_bytes": 273868787,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00010-of-00037.parquet": {
+      "num_bytes": 274142272,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00011-of-00037.parquet": {
+      "num_bytes": 274773321,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00012-of-00037.parquet": {
+      "num_bytes": 274328204,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00013-of-00037.parquet": {
+      "num_bytes": 274751130,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00014-of-00037.parquet": {
+      "num_bytes": 275075004,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00015-of-00037.parquet": {
+      "num_bytes": 275144867,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00016-of-00037.parquet": {
+      "num_bytes": 273250720,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00017-of-00037.parquet": {
+      "num_bytes": 274719066,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00018-of-00037.parquet": {
+      "num_bytes": 273917087,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00019-of-00037.parquet": {
+      "num_bytes": 274830010,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00020-of-00037.parquet": {
+      "num_bytes": 274208024,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00021-of-00037.parquet": {
+      "num_bytes": 274522347,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00022-of-00037.parquet": {
+      "num_bytes": 276794581,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00023-of-00037.parquet": {
+      "num_bytes": 275525850,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00024-of-00037.parquet": {
+      "num_bytes": 274565703,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00025-of-00037.parquet": {
+      "num_bytes": 275014664,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00026-of-00037.parquet": {
+      "num_bytes": 274259037,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00027-of-00037.parquet": {
+      "num_bytes": 273913615,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00028-of-00037.parquet": {
+      "num_bytes": 273129687,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00029-of-00037.parquet": {
+      "num_bytes": 274415471,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00030-of-00037.parquet": {
+      "num_bytes": 274752221,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00031-of-00037.parquet": {
+      "num_bytes": 274758163,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00032-of-00037.parquet": {
+      "num_bytes": 274303952,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00033-of-00037.parquet": {
+      "num_bytes": 273998661,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00034-of-00037.parquet": {
+      "num_bytes": 274108371,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00035-of-00037.parquet": {
+      "num_bytes": 271730085,
+      "checksum": null
+    },
+    "hf://datasets/corag/kilt-corpus@bf95d9b4b19c68420395efad7498d0ef5052ab4b/data/train-00036-of-00037.parquet": {
+      "num_bytes": 270908954,
+      "checksum": null
+    }
+  },
+  "download_size": 10150820540,
+  "features": {
+    "id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "contents": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "title": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "wikipedia_id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "orig_doc_id": {
+      "dtype": "int64",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 28189702483,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 18038881943,
+      "num_examples": 35678076,
+      "shard_lengths": [
+        989273,
+        989273,
+        989273,
+        991273,
+        991273,
+        988273,
+        988273,
+        990273,
+        990273,
+        992273,
+        988273,
+        988273,
+        988272,
+        988272,
+        987272,
+        986272,
+        989272,
+        985272,
+        989272,
+        988272,
+        991272,
+        986272,
+        984272,
+        990272,
+        989272,
+        990272,
+        990272,
+        988272,
+        991272,
+        988272,
+        989272,
+        990272,
+        990272,
+        990272,
+        992272,
+        997272,
+        60272
+      ],
+      "dataset_name": "kilt-corpus"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

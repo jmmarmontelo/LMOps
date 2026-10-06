@@ -31,6 +31,10 @@ SEED = 42
 
 INDEX_DIR_ORIGINAL = "data/e5-large-index"
 OUTPUT_DIR_PADRAO = "data/mini_gold"
+# Arquivos < 50 MB pra caber no GitHub (limite duro de 100 MB, aviso acima de 50 MB):
+# 24000 linhas x 1024 x fp16 ~= 49 MB por shard do indice.
+LINHAS_POR_SHARD_MINI = 24000
+MAX_SHARD_SIZE_CORPUS_MINI = "45MB"
 
 # Dev oficiais de onde saem as gold passages (o corag/multihopqa nao traz essa informacao).
 # Bamboogle nao tem gold, entao fica de fora.
@@ -278,12 +282,21 @@ def construir_mini_corpus_e_indice(
 
     mini_corpus = corpus.select(ids_originais_ordenados)
     mini_corpus = mini_corpus.add_column("orig_doc_id", ids_originais_ordenados)
-    mini_corpus.save_to_disk(corpus_dir_saida)
+    mini_corpus.save_to_disk(corpus_dir_saida, max_shard_size=MAX_SHARD_SIZE_CORPUS_MINI)
 
     tabela = tabela_shards if tabela_shards is not None else construir_tabela_shards(INDEX_DIR_ORIGINAL)
     mini_embeddings = extrair_embeddings(mapa_ids, tabela)
+    salvar_indice_em_shards(mini_embeddings, index_dir_saida)
+
+
+def salvar_indice_em_shards(embeddings: torch.Tensor, index_dir_saida: str) -> None:
+    """Fatias contiguas de LINHAS_POR_SHARD_MINI linhas em e5-large-shard-{i}.pt (ordem
+    preservada: _get_all_shards_path ordena pelo indice do shard)."""
     os.makedirs(index_dir_saida, exist_ok=True)
-    torch.save(mini_embeddings, os.path.join(index_dir_saida, "e5-large-shard-0.pt"))
+    for i, inicio in enumerate(range(0, embeddings.shape[0], LINHAS_POR_SHARD_MINI)):
+        # clone(): torch.save de uma view gravaria o storage inteiro do tensor original.
+        fatia = embeddings[inicio:inicio + LINHAS_POR_SHARD_MINI].clone()
+        torch.save(fatia, os.path.join(index_dir_saida, f"e5-large-shard-{i}.pt"))
 
 
 def remapear_e_salvar_datasets(

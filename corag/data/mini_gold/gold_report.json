@@ -1,0 +1,46 @@
+{
+  "hotpotqa": {
+    "n_perguntas": 50,
+    "n_golds": 100,
+    "n_mapeadas_kilt": 96,
+    "n_ja_no_top100": 75,
+    "score_medio_sobreposicao": 0.9326,
+    "n_score_abaixo_0.5": 0,
+    "nao_encontradas": [
+      {
+        "query_id": "hotpotqa_dev_2834",
+        "title": "Charkhi Dadri mid-air collision"
+      },
+      {
+        "query_id": "hotpotqa_dev_2149",
+        "title": "Talpa Holding"
+      },
+      {
+        "query_id": "hotpotqa_dev_6263",
+        "title": "I Love Lee Tae-ri"
+      },
+      {
+        "query_id": "hotpotqa_dev_3607",
+        "title": "Liliuokalani"
+      }
+    ]
+  },
+  "2wikimultihopqa": {
+    "n_perguntas": 50,
+    "n_golds": 132,
+    "n_mapeadas_kilt": 132,
+    "n_ja_no_top100": 82,
+    "score_medio_sobreposicao": 0.9828,
+    "n_score_abaixo_0.5": 1,
+    "nao_encontradas": []
+  },
+  "musique": {
+    "n_perguntas": 50,
+    "n_golds": 118,
+    "n_mapeadas_kilt": 118,
+    "n_ja_no_top100": 51,
+    "score_medio_sobreposicao": 0.8017,
+    "n_score_abaixo_0.5": 15,
+    "nao_encontradas": []
+  }
+}

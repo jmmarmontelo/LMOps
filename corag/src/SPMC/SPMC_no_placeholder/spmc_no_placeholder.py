@@ -416,8 +416,13 @@ def _carregar_mini() -> None:
         from transformers import AutoModel, AutoTokenizer
 
         corpus_dir = MINI_BASE_DIR / "corpus"
-        emb_path = MINI_BASE_DIR / "e5-large-index" / "e5-large-shard-0.pt"
-        if not corpus_dir.exists() or not emb_path.exists():
+        # Indice pode vir dividido em varios shards (data/mini_gold, pra caber no GitHub):
+        # concatena na ordem numerica do shard, que e a ordem das linhas do corpus.
+        shard_paths = sorted(
+            (MINI_BASE_DIR / "e5-large-index").glob("*-shard-*.pt"),
+            key=lambda p: int(re.search(r"-shard-(\d+)\.pt$", p.name).group(1)),
+        )
+        if not corpus_dir.exists() or not shard_paths:
             raise RuntimeError(
                 f"mini-corpus nao encontrado em {MINI_BASE_DIR}. Gere com:\n"
                 f"  PYTHONPATH=src python src/reproducao/construir_mini_corpus.py"
@@ -438,7 +443,9 @@ def _carregar_mini() -> None:
             media = (saida * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
             return torch.nn.functional.normalize(media, p=2, dim=-1)
 
-        _MINI["emb"] = torch.load(str(emb_path), weights_only=True, map_location="cpu").float()
+        _MINI["emb"] = torch.cat(
+            [torch.load(str(p), weights_only=True, map_location="cpu") for p in shard_paths]
+        ).float()
         _MINI["encode"] = encode
         _MINI["corpus"] = Dataset.load_from_disk(str(corpus_dir))
 
